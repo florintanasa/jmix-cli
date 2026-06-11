@@ -1,5 +1,6 @@
-# Jmix Lightweight CLI Engine - the code is in very alpha state, practical, I learning Python with this (is my first code in python)
-
+# Jmix Lightweight CLI Engine
+#### The code is in very alpha state, practical, I learning Python with this (is my first code in python)
+---
 A high-performance, parametric, and agnostic Command Line Interface (CLI) tool designed to automate architecture blueprinting for **Jmix 2.x / Spring Boot** applications. 
 
 This engine eliminates the heavy RAM consumption of traditional IDEs by completely orchestrating Data Models, Liquibase Versioning, FlowUI Views, Dynamic Collections, and Multi-language Localization using local AI models and structured CSV configurations.
