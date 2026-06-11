@@ -2,7 +2,7 @@
 
 A high-performance, parametric, and agnostic Command Line Interface (CLI) tool designed to automate architecture blueprinting for **Jmix 2.x / Spring Boot** applications. 
 
-This engine eliminates the heavy RAM consumption of traditional IDEs (like IntelliJ Jmix Plugin) by completely orchestrating Data Models, Liquibase Versioning, FlowUI Views, Dynamic Collections, and Multi-language Localization using local AI models and structured CSV configurations.
+This engine eliminates the heavy RAM consumption of traditional IDEs by completely orchestrating Data Models, Liquibase Versioning, FlowUI Views, Dynamic Collections, and Multi-language Localization using local AI models and structured CSV configurations.
 
 ## 🚀 Key Features
 
