@@ -11,12 +11,25 @@ This engine eliminates the heavy RAM consumption of traditional IDEs (like Intel
 * **Universal Composition Support**: Seamlessly wires up `COMPOSITION_1:N` and `COMPOSITION_1:1` relational hierarchies. Modifies the target class via `.rfind()` and generates nested `<dataGrid>` layouts with completely dynamic columns in the parent view.
 * **Deterministic Liquibase Sequencing**: Splits database migrations into base structures (`_01_base`) and relational constraints (`_02_relations`), ensuring strict execution sequencing and preventing referential integrity failures at startup.
 * **Parametric AI Localization**: Automatically queries a local LLM (`translategemma:4b` via Ollama) to translate, separate CamelCase strings, and format application UI properties based on the dynamic locale requested during project initialization.
+  
+---
+## 🚀 Initialize a new clean standard Jmix template
 
+Next command prepare for you a new project using [jmix-ai-template](https://github.com/jmix-framework/jmix-ai-template):
+```bash
+python jmix-cli.py init <project_name> <target_group> [locale]
+```
+   
+Example: 
+```bash
+python jmix-cli.py init onboarding com.company ro
+```
+  
 ---
 
 ## 🛠️ Configuration Files Structure
 
-The engine expects three CSV files in the root folder of your workspace:
+The engine expects three CSV files (next files are for example) in the root folder of your workspace:
 
 ### 1. `traits.csv`
 Defines standard JPA infrastructure mechanisms for each domain entity.
@@ -55,7 +68,10 @@ python3 jmix-cli.py init [ProjectName] [GroupPackage] [OptionalLocale]
 ```
 
 ### 2. Generate Data Model & Database Migrations
-Generates Java entity blueprints, audited traits, relational variables, and corresponding sequential Liquibase changelogs.
+Generates Java entity blueprints, audited traits, relational variables, create labels in messages_en.properties, translate labels in messages_XX.properties and corresponding sequential Liquibase changelogs.  
+>[!INFO]  
+> Runs entities that do not depend on other entities first, followed by entities that depend on them.
+
 ```bash
 python3 jmix-cli.py entity [EntityName]
 # Example: python3 jmix-cli.py entity UserStep
@@ -77,7 +93,7 @@ python3 jmix-cli.py ui-detail [EntityName]
 
 To view this engine in action executing an end-to-end automation cycle for a standard corporate onboarding flow, please refer to the fully generated tutorial implementation repository:
 
-👉 **[Jmix Onboarding Tutorial Generated Project](https://github.com)**
+👉 **[Jmix Onboarding Tutorial Generated Project](https://github.com/florintanasa/onboarding)**
 
 ---
 
