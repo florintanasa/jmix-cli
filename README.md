@@ -70,7 +70,8 @@ python3 jmix-cli.py init [ProjectName] [GroupPackage] [OptionalLocale]
 
 ### 2. Generate Data Model & Database Migrations
 Generates Java entity blueprints, audited traits, relational variables, create labels in messages_en.properties, translate labels in messages_XX.properties and corresponding sequential Liquibase changelogs.  
->[!INFO]  
+>[!IMPORTANT]
+>
 > Runs entities that do not depend on other entities first, followed by entities that depend on them.
 
 ```bash
