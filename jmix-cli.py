@@ -36,8 +36,6 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-import requests
-
 # Load proiect path in variable PROIECT_PATH
 PROIECT_PATH = str(Path.cwd())
 
@@ -2005,6 +2003,12 @@ if __name__ == "__main__":
             if relations_list:
                 gen_liquibase_relations_changelog("User", relations_list)
                 inject_relations_into_existing_user(relations_list)
+                update_messages_entity(
+                    project_dir=".",
+                    base_package=COMPANY + "." + PROJECT,
+                    entity_name="User",
+                    traits_list=[],
+                )
             else:
                 print(
                     "   -> No relationships were configured for the User in relations.csv."
