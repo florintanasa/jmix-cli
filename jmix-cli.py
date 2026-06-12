@@ -84,11 +84,11 @@ def get_traits_from_csv(csv_path, target_entity_name):
         "audit_of_modification": True,
         "soft_delete": False,
     }
-    # If not is found the traits.csv return traits default: "versioned": True,"audit_of_creation": True, "audit_of_modification": True, "soft_delete": False,
+    # If not is found the traits.csv return traits default: "versioned": True,"audit_of_creation": True, "audit_of_modification": True, "soft_delete": False
     if not os.path.exists(csv_path):
         return traits
 
-    # Open the traits.csv fiele and return the traits for entity
+    # Open the traits.csv file and return the traits for entity
     with open(csv_path, mode="r", encoding="utf-8") as f:
         reader = csv.DictReader(f)
         for row in reader:
@@ -1202,44 +1202,6 @@ def update_messages_entity(project_dir, base_package, entity_name, traits_list):
                     f"{base_package}.view.{n.lower()}/{n.lower()}ListView.dataGrid.{trait}={readable_en}"
                 )
             else:
-                # Optimized conversational translation prompt for human-like outputs (No shouting text!)
-                #                prompt = (
-                #                    f"You are a professional software translator. Translate this UI label "
-                #                    f"from English into {lang_name}. Return ONLY the natural translation, "
-                #                    f"properly capitalized, without any quotes or punctuation. Label: {readable_en}"
-                #                )
-                #                try:
-                #                    traducere_lang = (
-                #                        requests.post(
-                #                            "http://localhost:11434/api/generate",
-                #                            json={
-                #                                "model": "translategemma:4b",
-                #                                "prompt": prompt,
-                #                                "stream": False,
-                #                            },
-                #                            timeout=5,
-                #                        )
-                #                        .json()
-                #                        .get("response", "")
-                #                        .strip()
-                #                    )
-                #                except Exception:
-                #                    traducere_lang = ""
-
-                # Cleanup residual markdown quotes or dots from LLM
-                #                traducere_lang = (
-                #                    traducere_lang.replace('"', "")
-                #                    .replace("'", "")
-                #                    .replace(".", "")
-                #                    .strip()
-                #                )
-                #                if (
-                #                    not traducere_lang
-                #                    or "Error" in traducere_lang
-                #                    or len(traducere_lang) > 50
-                #                ):
-                #                    traducere_lang = readable_en
-
                 traducere_lang = ask_ollama_translation(readable_en, lang_name)
 
                 target_lines.append(
@@ -1266,43 +1228,6 @@ def update_messages_entity(project_dir, base_package, entity_name, traits_list):
             # Menu item injection matching menu.xml layout rules
             target_lines.append(f"{base_package}/menu.{n}.list={plural_title_en}")
         else:
-            # prompt_list = f"Translate this software menu title to {lang_name}. Output ONLY the raw translation, capitalized and without your comments. Text: {plural_title_en}"
-            # prompt_detail = f"Translate this software view title to {lang_name}. Output ONLY the raw translation, capitalized and without your comments. Text: {readable_title_en} Details"
-            # try:
-            #    traducere_title_list = (
-            #        requests.post(
-            #            "http://localhost:11434/api/generate",
-            #            json={
-            #                "model": "translategemma:4b",
-            #                "prompt": prompt_list,
-            #                "stream": False,
-            #            },
-            #            timeout=5,
-            #        )
-            #        .json()
-            #        .get("response", "")
-            #        .strip()
-            #        .replace('"', "")
-            #    )
-            #    traducere_title_detail = (
-            #        requests.post(
-            #            "http://localhost:11434/api/generate",
-            #            json={
-            #                "model": "translategemma:4b",
-            #                "prompt": prompt_detail,
-            #                "stream": False,
-            #            },
-            #            timeout=5,
-            #        )
-            #        .json()
-            #        .get("response", "")
-            #        .strip()
-            #        .replace('"', "")
-            #    )
-            # except Exception:
-            #    traducere_title_list = ""
-            #    traducere_title_detail = ""
-
             traducere_title_list = ask_ollama_translation(plural_title_en, lang_name)
             if not traducere_title_list or len(traducere_title_list) > 50:
                 traducere_title_list = (
@@ -1341,29 +1266,6 @@ def update_messages_entity(project_dir, base_package, entity_name, traits_list):
                 f"{COMPANY}.{project_name}.entity/{n}.{f_name}={readable_en}"
             )
 
-            # prompt = f"Translate this English field name to Romanian. Return ONLY the translated text capitalized. Source: {readable_en}"
-            # try:
-            #    traducere_ro = (
-            #        requests.post(
-            #            "http://localhost:11434/api/generate",
-            #            json={
-            #                "model": "translategemma:4b",
-            #                "prompt": prompt,
-            #                "stream": False,
-            #            },
-            #            timeout=5,
-            #        )
-            #        .json()
-            #        .get("response", "")
-            #        .strip()
-            #    )
-            # except Exception:
-            #    traducere_ro = ""
-
-            # lungime_text = len(traducere_ro)
-            # if not traducere_ro or "Error" in traducere_ro or lungime_text > 50:
-            #    traducere_ro = readable_en
-
             translate_label_relation = ask_ollama_translation(readable_en, lang_name)
             target_lines.append(
                 f"{COMPANY}.{project_name}.entity/{n}.{f_name}={translate_label_relation}"
@@ -1386,31 +1288,6 @@ def update_messages_entity(project_dir, base_package, entity_name, traits_list):
                 target_lines.append(
                     f"{COMPANY}.{project_name}.view.{tgt_lower}/{tgt_lower}DetailView.{f_name}={readable_title_en}"
                 )
-
-                # Ask translategemma:4b to translate the table title
-                # prompt = f"Translate this English field name to Romanian. Return ONLY the translated text capitalized. Source: {readable_title_en}"
-                # try:
-                #    traducere_ro = (
-                #        requests.post(
-                #            "http://localhost:11434/api/generate",
-                #            json={
-                #                "model": "translategemma:4b",
-                #                "prompt": prompt,
-                #                "stream": False,
-                #            },
-                #            timeout=5,
-                #        )
-                #        .json()
-                #        .get("response", "")
-                #        .strip()
-                #    )
-                # except Exception:
-                #    traducere_ro = ""
-
-                # if not traducere_ro or len(traducere_ro) > 50:
-                #    traducere_ro = (
-                #        "Corectează-mă"  # Fallback fix for the onboarding project
-                #    )
 
                 translate_label_composition = ask_ollama_translation(
                     readable_title_en, lang_name
@@ -1490,7 +1367,7 @@ def update_menu(n):
 
 
 # ==============================================================================
-# SUB-SISTEM COMMANDE INIT (Independent CLI - stil cuba-cli)
+# SUB-SISTEM COMMANDE INIT (Independent CLI - like cuba-cli)
 # ==============================================================================
 
 # Universal mapping dictionary from user input to official Jmix translation add-ons
@@ -1516,6 +1393,7 @@ JMIX_TRANSLATIONS_MAP = {
 }
 
 
+# Function to initializes a new Jmix project
 def cmd_init_project(project_name, target_group, lang_input="en"):
     """
     Initializes a new Jmix project by cloning the official starter template,
@@ -1751,6 +1629,7 @@ def cmd_init_project(project_name, target_group, lang_input="en"):
     print("=" * 60 + "\n")
 
 
+# Function to diplay the help
 def print_cli_help():
     """Displays CLI command user manual documentation."""
     print("\n🚀 JMIX CLI - UNIFIED COMMAND HELP")
@@ -1764,6 +1643,7 @@ def print_cli_help():
     print("-" * 50 + "\n")
 
 
+# Function to inject in existing User class
 def inject_relations_into_existing_user(relations_list):
     user_java_path = (
         PROIECT_PATH + f"/src/main/java/{company_path}/{project_name}/entity/User.java"
@@ -1827,6 +1707,7 @@ def inject_relations_into_existing_user(relations_list):
             print("✨ [Java] User.java has been updated with the new relationships!")
 
 
+# Function to inject into user-list-view.xml
 def inject_list_ui_into_existing_user(relations_list):
     # Determine paths using the standard Jmix architecture layout
     xml_path = (
@@ -2062,7 +1943,7 @@ if __name__ == "__main__":
             relations_list = get_relations_from_csv("relations.csv", name)
             if not fields_list:
                 print(
-                    f" ⚠ Error: Fields for entity '{name}' do not exist in entities.csv"
+                    f" ⚠️ Error: Fields for entity '{name}' do not exist in entities.csv"
                 )
                 sys.exit(1)
             gen_list_view_from_csv(name, fields_list, relations_list)
@@ -2077,10 +1958,10 @@ if __name__ == "__main__":
             fields_list = get_entities_from_csv("entities.csv", name)
             relations_list = get_relations_from_csv("relations.csv", name)
             if not fields_list:
-                print(f" ⚠ Error: Fields for '{name}' do not exist in entities.csv")
+                print(f" ⚠️ Error: Fields for '{name}' do not exist in entities.csv")
                 sys.exit(1)
             gen_detail_view_from_csv(name, fields_list, relations_list)
 
     else:
-        print(f" ⚠ Unknown action: '{action}'. Use entity, ui-list or ui-detail.")
+        print(f" ⚠️ Unknown action: '{action}'. Use entity, ui-list or ui-detail.")
         sys.exit(1)
