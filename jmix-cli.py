@@ -1832,10 +1832,12 @@ def inject_detail_ui_into_existing_user(relations_list):
             )
 
 
+# Function to generate Roles from roles.csv file
 def gen_jmix_resource_roles_from_csv():
     """
     Parses roles.csv and aggregates permissions by role code to generate
-    strongly-typed Jmix 2.x ResourceRole interfaces automatically.
+    strongly-typed Jmix 2.x ResourceRole interfaces with View, Menu, Entity,
+    and EntityAttribute policies automatically.
     """
     roles_file = "roles.csv"
     if not os.path.exists(roles_file):
@@ -1859,21 +1861,24 @@ def gen_jmix_resource_roles_from_csv():
     # 2. Iterate through each unique role and generate its interface definition
     for r_code, r_info in roles_data.items():
         role_name = r_info["name"]
-        # Format class name cleanly (e.g., hr-manager -> HrManagerRole)
-        # If r_code already ends with '-role', do not append a double 'Role' suffix
+
+        # Avoid duplicate "RoleRole" text structure in file mapping names
         raw_class_name = "".join([part.capitalize() for part in r_code.split("-")])
         if raw_class_name.endswith("Role"):
             class_name = raw_class_name
         else:
             class_name = raw_class_name + "Role"
+
         print(f"[*] Compiling Jmix ResourceRole: '{role_name}' -> {class_name}.java")
 
-        # Track active dynamic imports needed for this specific role interface configuration
+        # Jmix 2.x native security framework annotations imports tracking
         java_imports = {
             "import io.jmix.security.model.SecurityScope;",
             "import io.jmix.security.role.annotation.ResourceRole;",
             "import io.jmix.security.role.annotation.EntityPolicy;",
             "import io.jmix.security.model.EntityPolicyAction;",
+            "import io.jmix.security.role.annotation.EntityAttributePolicy;",
+            "import io.jmix.security.model.EntityAttributePolicyAction;",
             "import io.jmix.securityflowui.role.annotation.ViewPolicy;",
             "import io.jmix.securityflowui.role.annotation.MenuPolicy;",
         }
@@ -1884,18 +1889,16 @@ def gen_jmix_resource_roles_from_csv():
         for policy in r_info["policies"]:
             ent_name = policy["entity_name"].strip()
 
-            # Formulate full path import for target domain structure entity dynamically
+            # Inject dynamic domain entity import path directly into the collection structure
             java_imports.add(f"import {COMPANY}.{project_name}.entity.{ent_name};")
 
-            # UX Rule: If allowed to see the list view, automatically grant menu visibility
+            # --- VIEW & MENU POLICIES SECTION ---
             view_ids = []
             menu_ids = []
 
             if policy["ui_list"].strip().lower() == "true":
                 view_ids.append(f'"{ent_name}.list"')
-                menu_ids.append(
-                    f'"{ent_name}.list"'
-                )  # Generates matching item ID for menu.xml
+                menu_ids.append(f'"{ent_name}.list"')
 
             if policy["ui_detail"].strip().lower() == "true":
                 view_ids.append(f'"{ent_name}.detail"')
@@ -1926,10 +1929,22 @@ def gen_jmix_resource_roles_from_csv():
                 actions_str = ", ".join(crud_actions)
                 entity_policy_annotation = f"    @EntityPolicy(entityClass = {ent_name}.class, actions = {{{actions_str}}})\n"
 
-            # Assemble clean policy method signature per domain asset configuration
+            # --- ENTITY ATTRIBUTE POLICIES SECTION ---
+            # Automatically grants access to all attributes using the wildcard "*" format tracker.
+            attr_action = "EntityAttributePolicyAction.VIEW"
+            if (
+                "EntityPolicyAction.CREATE" in crud_actions
+                or "EntityPolicyAction.UPDATE" in crud_actions
+            ):
+                attr_action = "EntityAttributePolicyAction.MODIFY"
+
+            attribute_policy_annotation = f'    @EntityAttributePolicy(entityClass = {ent_name}.class, attributes = "*", action = {attr_action})\n'
+
+            # Combine all four strategic annotations into a single cleanly formatted method block signature
             # Strictly formatting the method name via precise camelCase index conversion
+            # e.g., "UserStep" -> "user" + "Step" + "Policies" -> "userStepPolicies"
             method_name = ent_name[0].lower() + ent_name[1:] + "Policies"
-            java_policies_body += f"{view_policy_annotation}{menu_policy_annotation}{entity_policy_annotation}    void {method_name}();\n\n"
+            java_policies_body += f"{view_policy_annotation}{menu_policy_annotation}{entity_policy_annotation}{attribute_policy_annotation}    void {method_name}();\n\n"
 
         # 4. Synthesize final clean Java blueprint template
         imports_block = "\n".join(sorted(list(java_imports)))
@@ -1944,7 +1959,7 @@ public interface {class_name} {{
 {java_policies_body}}}
 """
 
-        # 5. IO writing process into correct Jmix security structure path
+        # 5. Safe IO file writing process into correct Jmix structural folder
         target_dir = os.path.join(
             PROIECT_PATH, "src", "main", "java", company_path, project_name, "security"
         )
@@ -1954,148 +1969,11 @@ public interface {class_name} {{
         with open(file_path, "w", encoding="utf-8") as f:
             f.write(java_content)
 
-    print("✨ [Security] All parametric resource roles generated successfully!")
+    print(
+        "✨ [Security] All parametric resource roles with attribute policies generated successfully!"
+    )
 
 
-"""
-if __name__ == "__main__":
-    # Verify if the user wants to trigger the project initialization command
-    if len(sys.argv) > 1 and sys.argv[1].lower() == "init":
-        if len(sys.argv) < 4:
-            print("[-] Error: Missing required arguments.")
-            print_cli_help()
-            sys.exit(1)
-
-        p_name = sys.argv[2]
-        t_group = sys.argv[3]
-
-        # Check if a secondary locale was explicitly passed (e.g., ro_RO, ro_MD)
-        if len(sys.argv) > 4:
-            requested_lang = sys.argv[4]
-        else:
-            requested_lang = "en"
-
-        cmd_init_project(p_name, t_group, requested_lang)
-        sys.exit(0)
-
-    elif len(sys.argv) > 1 and sys.argv[1].lower() in ["help", "--help", "-h"]:
-        print_cli_help()
-        sys.exit(0)
-
-    # -----------------------------------------------------
-    # (Default run in the absence of the 'init' command)
-    # -----------------------------------------------------
-    print(f"[*] Run Jmix CLI engine generation on the current project: '{PROJECT}'...")
-
-    # Perform a safety check to ensure we are in a valid project
-    if not PROJECT:
-        print("[-] No valid Jmix project detected in this folder.")
-        print_cli_help()
-        sys.exit(1)
-
-    # Verify the correct number of arguments (script + action + entity name)
-    if len(sys.argv) < 3:
-        print("Usage: python3 jmix-cli.py [entity|ui-list|ui-detail] [Name]")
-        sys.exit(1)
-
-    action = sys.argv[1]  # Ex: entity
-    name = sys.argv[2]  # Ex: Department
-
-    if action == "entity":
-        # Verify if the current entity is the Jmix system user
-        if name == "User":
-            print("👤 [System User] Triggering relational infiltration...")
-            relations_list = get_relations_from_csv("relations.csv", "User")
-
-            if relations_list:
-                gen_liquibase_relations_changelog("User", relations_list)
-                inject_relations_into_existing_user(relations_list)
-                update_messages_entity(
-                    project_dir=".",
-                    base_package=COMPANY + "." + PROJECT,
-                    entity_name="User",
-                    traits_list=[],
-                )
-            else:
-                print(
-                    "   -> No relationships were configured for the User in relations.csv."
-                )
-        else:
-            # Fetch data from the normalized files in the CSV files
-            traits = get_traits_from_csv("traits.csv", name)
-            fields_list = get_entities_from_csv("entities.csv", name)
-            relations_list = get_relations_from_csv("relations.csv", name)
-
-            if not fields_list:
-                print(f" ⚠ No fields found for the entity '{name}' in entities.csv")
-                sys.exit(1)
-
-            print(f"Generating Entity {name} from CSV architecture...")
-            gen_entity_mechanic_from_csv(name, fields_list, traits, relations_list)
-
-            # PARAMETRIC EXTRACTION: We read only the fields of this entity from entities.csv
-            computed_traits_list = []
-            if os.path.exists("entities.csv"):
-                with open("entities.csv", mode="r", encoding="utf-8") as f:
-                    reader = csv.DictReader(f)
-                    for row in reader:
-                        # Strict condition: if the row belongs to the current entity (e.g., Step)
-                        if row["entity_name"].strip() == name.strip():
-                            computed_traits_list.append(row["field_name"].strip())
-
-            # If for some reason the list is empty, we put a safety fallback
-            if not computed_traits_list:
-                computed_traits_list = ["name"]
-
-            # NOW CALLING THE FUNCTION, PASSING THE ACTUAL LIST CALCULATED FROM CSV!
-            update_messages_entity(
-                project_dir=".",
-                base_package=COMPANY + "." + PROJECT,
-                entity_name=name,
-                traits_list=computed_traits_list,
-            )
-            gen_liquibase_changelog_from_csv(name, fields_list, traits)
-        if relations_list:
-            gen_liquibase_relations_changelog(name, relations_list)
-
-    elif action == "ui-list":
-        if name == "User":
-            print("[*] Triggering FlowUI List View infiltration for system User...")
-            relations_list = get_relations_from_csv("relations.csv", "User")
-            inject_list_ui_into_existing_user(relations_list)
-            # Update menu if needed, though Jmix usually includes User view by default
-        else:
-            fields_list = get_entities_from_csv("entities.csv", name)
-            relations_list = get_relations_from_csv("relations.csv", name)
-            if not fields_list:
-                print(
-                    f" ⚠️ Error: Fields for entity '{name}' do not exist in entities.csv"
-                )
-                sys.exit(1)
-            gen_list_view_from_csv(name, fields_list, relations_list)
-            update_menu(name)
-
-    elif action == "ui-detail":
-        if name == "User":
-            print("[*] Triggering FlowUI Detail View infiltration for system User...")
-            relations_list = get_relations_from_csv("relations.csv", "User")
-            inject_detail_ui_into_existing_user(relations_list)
-        else:
-            fields_list = get_entities_from_csv("entities.csv", name)
-            relations_list = get_relations_from_csv("relations.csv", name)
-            if not fields_list:
-                print(f" ⚠️ Error: Fields for '{name}' do not exist in entities.csv")
-                sys.exit(1)
-            gen_detail_view_from_csv(name, fields_list, relations_list)
-
-    elif action == "security":
-        gen_jmix_resource_roles_from_csv()
-        sys.exit(0)
-
-    else:
-        print(f" ⚠️ Unknown action: '{action}'. Use entity, ui-list or ui-detail.")
-        sys.exit(1)
-"""
 if __name__ == "__main__":
     # -----------------------------------------------------
     # 1. Project Initialization & Help Command Interception
