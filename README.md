@@ -57,6 +57,15 @@ User,N:1,Department,department,false
 UserStep,COMPOSITION_1:N,User,steps,false
 ```
 
+### 4. `roles.csv`
+Define Roles to security the entities, views and menu. The roles are assigned from web interface to the user. 
+```csv
+name,code,entity_name,ui_list,ui_detail,create,read,update,delete
+HR Manager,hr-manager,UserStep,true,true,true,true,true,true
+HR Manager,hr-manager,Department,true,true,false,true,false,false
+Employee Role,employee-role,UserStep,true,false,false,true,false,false
+```
+
 ---
 
 ## 💻 Usage & CLI Commands
@@ -87,6 +96,13 @@ python3 jmix-cli.py ui-list [EntityName]
 
 # Generate Form/Detail View layout and handle sub-composition bindings
 python3 jmix-cli.py ui-detail [EntityName]
+```
+
+### 4. Generate Roles
+Roles ensure the security of entities, screens and menus. After generation, roles are assigned to users through the web interface by the admin. Roles basically establish the CRUD actions on entities and screens and menus.
+```bash
+# Generate Roles defined in roles.csv files
+python3 jmix-cli.py security
 ```
 
 ---
