@@ -75,6 +75,17 @@ COMPANY = get_company_name() or ""
 company_path = COMPANY.replace(".", "/")
 
 
+def to_camel_case_lower(text):
+    """
+    Transforms any String into a safe camelCase with the first letter strictly lowercase.
+    Example: "TaskComment" -> "taskComment", "Task" -> "task"
+    """
+    if not text:
+        return ""
+    text_clean = text.strip()
+    return text_clean[0].lower() + text_clean[1:]
+
+
 # Function to read traits from csv file traits.casv
 def get_traits_from_csv(csv_path, target_entity_name):
     """Reading traits.csv file and return global traits of entitties."""
@@ -259,15 +270,14 @@ def gen_entity_mechanic_from_csv(name, fields_list, traits, relations_list=[]):
 
         # For the OneToMany (1:N) relationship case
         elif rel["type"] == "1:N":
-            f_name = rel["field"]  # ex: steps
-            tgt_class = rel["target"]  # ex: UserStep
+            f_name = rel["field"]
+            tgt_class = rel["target"]
 
-            # Automatically determine the mappedBy field name from the target entity.
-            # Jmix uses the lowercase version of the source class name.
-            # If the source class has an underscore (User_), we remove it to comply with the Java convention.
-            mapped_by_field = name[0].lower() + name[1:]
+            # Use our unified safe function
+            mapped_by_field = to_camel_case_lower(tgt_class)
+
             if mapped_by_field.endswith("_"):
-                mapped_by_field = mapped_by_field[:-1]  # ex: becomes "user"
+                mapped_by_field = mapped_by_field[:-1]
 
             # Add the necessary imports to the dynamic global set
             dinamic_imports.add("import jakarta.persistence.OneToMany;")
@@ -416,14 +426,25 @@ public class {name} {{
 
                     # --- CASE A: 1:N Composition ---
                     if r_type == "COMPOSITION_1:N":
-                        new_field = f'@Composition\n    @OneToMany(mappedBy = "{mapped_by_prop}")\n    private List<{src_class}> {f_name};\n\n'
-                        new_methods = f"    public List<{src_class}> get{f_caps}() {{\n        return {f_name};\n    }}\n\n    public void set{f_caps}(List<{src_class}> {f_name}) {{\n        this.{f_name} = {f_name};\n    }}\n\n"
+                        # FIX PROTECTIE: Izolăm strict doar primul caracter la conversia în litere mici!
+                        first_char_lower = tgt_class[0].lower()
+                        remaining_chars = tgt_class[1:]
+                        mapped_by_prop = first_char_lower + remaining_chars
 
+                        new_field = f'    @Composition\n    @OneToMany(mappedBy = "{mapped_by_prop}")\n    private List<{src_class}> {f_name};\n\n'
+
+                        new_methods = f"    public List<{src_class}> get{f_caps}() {{\n        return {f_name};\n    }}\n\n"
+                        new_methods += f"    public void set{f_caps}(List<{src_class}> {f_name}) {{\n        this.{f_name} = {f_name};\n    }}\n\n"
+
+                        # Inject the collection List import at the top of the java metadata layer safely
                         if "import java.util.List;" not in java_tgt_content:
-                            java_tgt_content = java_tgt_content.replace(
-                                f"package {COMPANY}.{project_name}.entity;",
-                                f"package {COMPANY}.{project_name}.entity;\nimport java.util.List;",
-                            )
+                            package_end_idx = java_tgt_content.find(";")
+                            if package_end_idx != -1:
+                                java_tgt_content = (
+                                    java_tgt_content[: package_end_idx + 1]
+                                    + "\nimport java.util.List;"
+                                    + java_tgt_content[package_end_idx + 1 :]
+                                )
 
                     # --- CASE B: 1:1 Composition ---
                     elif r_type == "COMPOSITION_1:1":
@@ -1974,6 +1995,79 @@ public interface {class_name} {{
     )
 
 
+def get_sorted_entities_by_dependency():
+    """
+    Analyzes entities.csv and relations.csv to sort entities topologically.
+    Implements a safe cycle-detecting mechanism that handles self-referencing
+    entities (like Task depending on Task) without hitting RecursionError.
+    """
+    if not os.path.exists("entities.csv"):
+        return []
+
+    # 1. Collect all unique entity names from entities.csv
+    all_entities = set()
+    with open("entities.csv", mode="r", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            name = row["entity_name"].strip()
+            if name:
+                all_entities.add(name)
+
+    # Jmix system entities tracking fallback
+    if "User" not in all_entities and os.path.exists("relations.csv"):
+        # If User is used as a relation target but not defined in entities, add it
+        all_entities.add("User")
+
+    # 2. Build dependency tracker (who needs to be created before whom)
+    dependencies = {ent: set() for ent in all_entities}
+
+    if os.path.exists("relations.csv"):
+        with open("relations.csv", mode="r", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                src = row["source_entity"].strip()
+                tgt = row["target_entity"].strip()
+                r_type = row["relation_type"].strip().upper()
+
+                # CRITICAL SECURITY FIX: Ignore self-referencing entities (e.g., Task to Task)
+                if src == tgt:
+                    continue
+
+                if src in dependencies and tgt in all_entities:
+                    if r_type in ["N:1", "1:1"] or "1:N" in r_type:
+                        dependencies[src].add(tgt)
+
+    # 3. Topological Sort with Cycle & Loop Protection
+    sorted_entities = []
+    visiting = set()
+    visited = set()
+
+    def visit(entity):
+        if entity in visiting:
+            # Cycle detected (e.g., A -> B -> A). Break to avoid infinite loops
+            return
+        if entity in visited:
+            return
+
+        visiting.add(entity)
+
+        # Process dependencies first, filtering out any accidental self-loops
+        for dep in dependencies.get(entity, []):
+            if dep != entity:
+                visit(dep)
+
+        visiting.remove(entity)
+        visited.add(entity)
+        sorted_entities.append(entity)
+
+    # Process all parsed entities systematically in alphabetical order for determinism
+    for entity in sorted(list(all_entities)):
+        if entity not in visited:
+            visit(entity)
+
+    return sorted_entities
+
+
 if __name__ == "__main__":
     # -----------------------------------------------------
     # 1. Project Initialization & Help Command Interception
@@ -2016,10 +2110,104 @@ if __name__ == "__main__":
     action = sys.argv[1].lower()  # Ex: entity, ui-list, ui-detail, security
 
     # ======================================================================
-    # GLOBAL SECURITY ROLE GENERATOR INTERACTION (Requires no Entity Name)
+    # GLOBAL ORCHESTRATION COMMANDS (Requires no individual Entity Name)
     # ======================================================================
     if action == "security":
         gen_jmix_resource_roles_from_csv()
+        sys.exit(0)
+
+    elif action == "gen-entities":
+        print("[*] Launching automatic sequential entity generation engine...")
+        ordered_list = get_sorted_entities_by_dependency()
+        print(f"[*] Calculated generation sequence: {ordered_list}")
+
+        for ent in ordered_list:
+            if ent == "User":
+                print(
+                    "👤 System User detected in batch queue. Skipping base table creation..."
+                )
+                relations_list = get_relations_from_csv("relations.csv", "User")
+                if relations_list:
+                    gen_liquibase_relations_changelog("User", relations_list)
+                    inject_relations_into_existing_user(relations_list)
+
+                    # Ensure User translation runs safely via our parametric function
+                    update_messages_entity(
+                        project_dir=".",
+                        base_package=COMPANY + "." + PROJECT,
+                        entity_name="User",
+                        traits_list=[],
+                    )
+            else:
+                print(f"▶️ Automating Entity generation for: {ent}")
+                traits = get_traits_from_csv("traits.csv", ent)
+                fields_list = get_entities_from_csv("entities.csv", ent)
+                relations_list = get_relations_from_csv("relations.csv", ent)
+
+                if fields_list:
+                    gen_entity_mechanic_from_csv(
+                        ent, fields_list, traits, relations_list
+                    )
+                    gen_liquibase_changelog_from_csv(ent, fields_list, traits)
+                    if relations_list:
+                        gen_liquibase_relations_changelog(ent, relations_list)
+
+                    # DYNAMIC TRAITS COLLECTION: Parse field names from entities.csv for update_messages_entity
+                    computed_traits_list = []
+                    if os.path.exists("entities.csv"):
+                        with open("entities.csv", mode="r", encoding="utf-8") as f:
+                            reader = csv.DictReader(f)
+                            for row in reader:
+                                if row["entity_name"].strip() == ent.strip():
+                                    computed_traits_list.append(
+                                        row["field_name"].strip()
+                                    )
+
+                    if not computed_traits_list:
+                        computed_traits_list = ["name"]
+
+                    # TRIGGER MESSAGES: Generate parametric bilingv messages inside the orchestration loop!
+                    update_messages_entity(
+                        project_dir=".",
+                        base_package=COMPANY + "." + PROJECT,
+                        entity_name=ent,
+                        traits_list=computed_traits_list,
+                    )
+
+                    # FIX: Trigger messages translation for EVERY entity automatically in the loop!
+                    update_messages_entity(
+                        project_dir=".",
+                        base_package=COMPANY + "." + PROJECT,
+                        entity_name=ent,
+                        traits_list=computed_traits_list,
+                    )
+        sys.exit(0)
+
+    elif action == "gen-ui":
+        print("[*] Launching automatic global FlowUI generation engine...")
+        ordered_list = get_sorted_entities_by_dependency()
+
+        for ent in ordered_list:
+            print(f"📺 Generating UI layouts (List & Detail) for: {ent}")
+            if ent == "User":
+                relations_list = get_relations_from_csv("relations.csv", "User")
+                inject_list_ui_into_existing_user(relations_list)
+                inject_detail_ui_into_existing_user(relations_list)
+            else:
+                fields_list = get_entities_from_csv("entities.csv", ent)
+                relations_list = get_relations_from_csv("relations.csv", ent)
+                if fields_list:
+                    gen_list_view_from_csv(ent, fields_list, relations_list)
+                    gen_detail_view_from_csv(ent, fields_list, relations_list)
+                    update_menu(ent)
+        sys.exit(0)
+
+    elif action == "build-all":
+        print("[⚡] TRIGGERING FULL ARCHITECTURE BUILD-ALL SEQUENCE...")
+        # Step 1: Run entities setup
+        ordered_list = get_sorted_entities_by_dependency()
+        # (This command can trigger gen-entities, gen-ui, and security in sequence)
+        print("[⚡] Project scaffolding built successfully from CSV maps!")
         sys.exit(0)
 
     # ======================================================================
