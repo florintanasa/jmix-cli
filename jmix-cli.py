@@ -33,7 +33,8 @@ import re
 import shutil
 import subprocess
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
+from operator import sub
 from pathlib import Path
 
 # Load proiect path in variable PROIECT_PATH
@@ -75,6 +76,7 @@ COMPANY = get_company_name() or ""
 company_path = COMPANY.replace(".", "/")
 
 
+# Function to transform into a camelCase with first letter lowercase
 def to_camel_case_lower(text):
     """
     Transforms any String into a safe camelCase with the first letter strictly lowercase.
@@ -84,6 +86,18 @@ def to_camel_case_lower(text):
         return ""
     text_clean = text.strip()
     return text_clean[0].lower() + text_clean[1:]
+
+
+# Fucntion to inject import at the package line if it doesn't already exist.
+def inject_import_if_missing(java_content: str, import_class: str) -> str:
+    """Inject an import statement at the package line if it doesn't already exist."""
+    full_import = f"import {import_class};"
+    if full_import in java_content:
+        return java_content
+    return java_content.replace(
+        f"package {COMPANY}.{project_name}.entity;",
+        f"package {COMPANY}.{project_name}.entity;\n{full_import}",
+    )
 
 
 # Function to read traits from csv file traits.casv
@@ -293,26 +307,68 @@ def gen_entity_mechanic_from_csv(name, fields_list, traits, relations_list=[]):
             java_relation_methods += f"    public void set{f_caps}(List<{tgt_class}> {f_name}) {{\n        this.{f_name} = {f_name};\n    }}\n\n"
 
         # For the OneToOne (1:1) relationship case
-        elif rel["type"] == "1:1":
-            f_name = rel["field"]
-            tgt_class = rel["target"]
-            sql_fk_col = f"{f_name.upper()}_ID"
+        elif rel["type"].strip().upper() == "1:1":
+            f_name = rel["field"].strip()
+            tgt_class = rel["target"].strip()
 
+            # 1. Populate your native 'dinamic_imports' set
             dinamic_imports.add("import jakarta.persistence.OneToOne;")
-            dinamic_imports.add("import jakarta.persistence.FetchType;")
             dinamic_imports.add("import jakarta.persistence.JoinColumn;")
+            dinamic_imports.add("import jakarta.persistence.FetchType;")
 
-            join_props = f'name = "{sql_fk_col}"'
-            if rel["mandatory"]:
-                join_props += ", nullable = false"
+            # 2. Append the field to your true relationship fields accumulator
+            sql_fk_col = f"{f_name.upper()}_ID"
+            java_relation_fields += f'    @JoinColumn(name = "{sql_fk_col}")\n    @OneToOne(fetch = FetchType.LAZY)\n    private {tgt_class} {f_name};\n\n'
 
-            java_relation_fields += f"    @JoinColumn({join_props})\n"
-            java_relation_fields += "    @OneToOne(fetch = FetchType.LAZY)\n"
-            java_relation_fields += f"    private {tgt_class} {f_name};\n\n"
-
+            # 3. Append the methods to your true relationship methods accumulator
             f_caps = f_name[0].upper() + f_name[1:]
             java_relation_methods += f"    public {tgt_class} get{f_caps}() {{\n        return {f_name};\n    }}\n\n"
             java_relation_methods += f"    public void set{f_caps}({tgt_class} {f_name}) {{\n        this.{f_name} = {f_name};\n    }}\n\n"
+
+            # 4. Inverse mapping: Infiltrate reciprocal @OneToOne into the parent entity class
+            tgt_file_path = os.path.join(
+                PROIECT_PATH,
+                "src",
+                "main",
+                "java",
+                company_path,
+                project_name,
+                "entity",
+                f"{tgt_class}.java",
+            )
+            if os.path.exists(tgt_file_path):
+                java_tgt_content = open(tgt_file_path, "r", encoding="utf-8").read()
+                inv_field_name = name[0].lower() + name[1:]
+
+                if f"private {name} {inv_field_name};" not in java_tgt_content:
+                    print(
+                        f" 🔗 Infiltrating inverse 1:1 association into the parent class: {tgt_class}"
+                    )
+                    inv_field = f'    @OneToOne(fetch = FetchType.LAZY, mappedBy = "{f_name}")\n    private {name} {inv_field_name};\n\n'
+
+                    inv_caps = inv_field_name[0].upper() + inv_field_name[1:]
+                    inv_methods = f"    public {name} get{inv_caps}() {{\n        return {inv_field_name};\n    }}\n\n"
+                    inv_methods += f"    public void set{inv_caps}({name} {inv_field_name}) {{\n        this.{inv_field_name} = {inv_field_name};\n    }}\n\n"
+
+                    tgt_last_brace = java_tgt_content.rfind("}")
+                    if tgt_last_brace != -1:
+                        java_tgt_content = (
+                            java_tgt_content[:tgt_last_brace]
+                            + inv_field
+                            + inv_methods
+                            + java_tgt_content[tgt_last_brace:]
+                        )
+
+                        if (
+                            "import jakarta.persistence.OneToOne;"
+                            not in java_tgt_content
+                        ):
+                            java_tgt_content = java_tgt_content.replace(
+                                f"package {COMPANY}.{project_name}.entity;",
+                                f"package {COMPANY}.{project_name}.entity;\nimport jakarta.persistence.OneToOne;\nimport jakarta.persistence.FetchType;",
+                            )
+                        with open(tgt_file_path, "w", encoding="utf-8") as f:
+                            f.write(java_tgt_content)
 
         # For the ManyToMany (N:N) relationship case
         elif rel["type"] == "N:N":
@@ -341,6 +397,59 @@ def gen_entity_mechanic_from_csv(name, fields_list, traits, relations_list=[]):
             f_caps = f_name[0].upper() + f_name[1:]
             java_relation_methods += f"    public List<{tgt_class}> get{f_caps}() {{\n        return {f_name};\n    }}\n\n"
             java_relation_methods += f"    public void set{f_caps}(List<{tgt_class}> {f_name}) {{\n        this.{f_name} = {f_name};\n    }}\n\n"
+
+            # ===== INJECT INVERSE N:N RELATIONSHIP INTO TARGET ENTITY =====
+            inv_field_name = (
+                name.lower() + "s" if not name.endswith("s") else name.lower()
+            )
+            tgt_file_path = os.path.join(
+                PROIECT_PATH,
+                "src",
+                "main",
+                "java",
+                company_path,
+                project_name,
+                "entity",
+                f"{tgt_class}.java",
+            )
+            if os.path.exists(tgt_file_path):
+                java_tgt_content = open(tgt_file_path, "r", encoding="utf-8").read()
+
+                if f"private List<{name}> {inv_field_name};" not in java_tgt_content:
+                    print(
+                        f" 🔗 Injecting inverse N:N association into the target class: {tgt_class}"
+                    )
+
+                    inv_field = f'    @ManyToMany(mappedBy = "{f_name}")\n    private List<{name}> {inv_field_name};\n\n'
+
+                    inv_caps = inv_field_name[0].upper() + inv_field_name[1:]
+                    inv_methods = f"    public List<{name}> get{inv_caps}() {{\n        return {inv_field_name};\n    }}\n\n"
+                    inv_methods += f"    public void set{inv_caps}(List<{name}> {inv_field_name}) {{\n        this.{inv_field_name} = {inv_field_name};\n    }}\n\n"
+
+                    java_tgt_content = inject_import_if_missing(
+                        java_tgt_content, "jakarta.persistence.ManyToMany"
+                    )
+                    java_tgt_content = inject_import_if_missing(
+                        java_tgt_content, "java.util.List"
+                    )
+
+                    if "    public UUID getId()" in java_tgt_content:
+                        java_tgt_content = java_tgt_content.replace(
+                            "    public UUID getId()",
+                            f"{inv_field}    public UUID getId()",
+                        )
+
+                    last_brace = java_tgt_content.rfind("}")
+                    if last_brace != -1:
+                        java_tgt_content = (
+                            java_tgt_content[:last_brace]
+                            + "\n"
+                            + inv_methods
+                            + java_tgt_content[last_brace:]
+                        )
+
+                    with open(tgt_file_path, "w", encoding="utf-8") as f:
+                        f.write(java_tgt_content)
 
     # Transform the entire import set into text NOW, after everything is collected
     imports_block = "\n".join(sorted(list(dinamic_imports)))
@@ -426,7 +535,7 @@ public class {name} {{
 
                     # --- CASE A: 1:N Composition ---
                     if r_type == "COMPOSITION_1:N":
-                        # FIX PROTECTIE: Izolăm strict doar primul caracter la conversia în litere mici!
+                        # FIX PROTECTION: We strictly isolate only the first character when converting to lowercase!
                         first_char_lower = tgt_class[0].lower()
                         remaining_chars = tgt_class[1:]
                         mapped_by_prop = first_char_lower + remaining_chars
@@ -448,21 +557,73 @@ public class {name} {{
 
                     # --- CASE B: 1:1 Composition ---
                     elif r_type == "COMPOSITION_1:1":
-                        new_field = f'@Composition\n    @OneToOne(fetch = FetchType.LAZY, mappedBy = "{mapped_by_prop}")\n    private {src_class} {f_name};\n\n'
+                        # CRITICAL JPA FIX: The parent entity defines @Composition and @JoinColumn.
+                        # It holds the foreign key column (e.g. PROFILE_ID) inside its database table structure.
+                        sql_fk_col = f"{f_name.upper()}_ID"
+                        new_field = f'@Composition\n    @JoinColumn(name = "{sql_fk_col}")\n    @OneToOne(fetch = FetchType.LAZY)\n    private {src_class} {f_name};\n\n'
                         new_methods = f"    public {src_class} get{f_caps}() {{\n        return {f_name};\n    }}\n\n    public void set{f_caps}({src_class} {f_name}) {{\n        this.{f_name} = {f_name};\n    }}\n\n"
 
-                    # Inject native Jmix @Composition into the package header
+                        # Inverse mapping setup: Inject the bidirectional mappedBy reference into the child class (src_class)
+                        src_file_path = os.path.join(
+                            PROIECT_PATH,
+                            "src",
+                            "main",
+                            "java",
+                            company_path,
+                            project_name,
+                            "entity",
+                            f"{src_class}.java",
+                        )
+                        if os.path.exists(src_file_path):
+                            java_src_content = open(
+                                src_file_path, "r", encoding="utf-8"
+                            ).read()
+                            inv_field_name = name.lower() + name[1:]
+
+                            if (
+                                f"private {name} {inv_field_name};"
+                                not in java_src_content
+                            ):
+                                print(
+                                    f" 🔗 Infiltrating inverse 1:1 mappedBy link into the child composition class: {src_class}"
+                                )
+                                inv_field = f'    @OneToOne(fetch = FetchType.LAZY, mappedBy = "{f_name}")\n    private {name} {inv_field_name};\n\n'
+                                inv_caps = inv_field_name.upper() + inv_field_name[1:]
+                                inv_methods = f"    public {name} get{inv_caps}() {{\n        return {inv_field_name};\n    }}\n\n"
+                                inv_methods += f"    public void set{inv_caps}({name} {inv_field_name}) {{\n        this.{inv_field_name} = {inv_field_name};\n    }}\n\n"
+
+                                src_last_brace = java_src_content.rfind("}")
+                                if src_last_brace != -1:
+                                    java_src_content = (
+                                        java_src_content[:src_last_brace]
+                                        + inv_field
+                                        + inv_methods
+                                        + java_src_content[src_last_brace:]
+                                    )
+                                    if (
+                                        "import jakarta.persistence.OneToOne;"
+                                        not in java_src_content
+                                    ):
+                                        java_src_content = java_src_content.replace(
+                                            f"package {COMPANY}.{project_name}.entity;",
+                                            f"package {COMPANY}.{project_name}.entity;\nimport jakarta.persistence.OneToOne;\nimport jakarta.persistence.FetchType;",
+                                        )
+                                    with open(
+                                        src_file_path, "w", encoding="utf-8"
+                                    ) as f:
+                                        f.write(java_src_content)
+
+                    # Inject dynamic Jmix @Composition import into the package header
                     if (
                         "import io.jmix.core.metamodel.annotation.Composition;"
                         not in java_tgt_content
                     ):
                         java_tgt_content = java_tgt_content.replace(
                             f"package {COMPANY}.{project_name}.entity;",
-                            f"package {COMPANY}.{project_name}.entity;\nimport io.jmix.core.metamodel.annotation.Composition;",
+                            f"package {COMPANY}.{project_name}.entity;\nimport io.jmix.core.metamodel.annotation.Composition;\nimport jakarta.persistence.OneToOne;\nimport jakarta.persistence.JoinColumn;\nimport jakarta.persistence.FetchType;",
                         )
 
                     # PERFORMING MANUAL FIELD INSERTION:
-                    # We are looking for the line with the four spaces to the left to prevent indentation duplication
                     if "    public UUID getId()" in java_tgt_content:
                         old_anchor = "    public UUID getId()"
                         replacement = "    " + new_field + "    public UUID getId()"
@@ -675,20 +836,36 @@ def gen_liquibase_relations_changelog(name, relations_list):
 
         # === CASE 2: 1:1 Relationship (OneToOne) ===
         # Add a UUID column + Foreign Key + a UNIQUE constraint to ensure the 1-to-1 link
-        elif rel["type"] == "1:1":
+        # NOTE: COMPOSITION_1:1 also handled here - FK will be added in PHASE 2.5 after target entity exists
+        elif rel["type"] == "1:1" or rel["type"] == "COMPOSITION_1:1":
             f_name = rel["field"].upper()
             col_name = f"{f_name}_ID"
             fk_name = f"FK_{src_table}_ON_{f_name}"
             nullable_val = "false" if rel["mandatory"] else "true"
 
-            xml_fk_content += f"""
+            if rel["type"] == "COMPOSITION_1:1":
+                xml_fk_content += f"""
     <changeSet id="{timestamp_id}-add-11-{rel["field"].lower()}" author="{project_name}">
         <addColumn tableName="{src_table}">
             <column name="{col_name}" type="UUID">
                 <constraints nullable="{nullable_val}"/>
             </column>
         </addColumn>
-        <!-- Garantăm unicitatea la nivel SQL pentru 1:1 prin crearea unui Index UNIQUE -->
+        <!-- Guarantee uniqueness at the SQL level for 1:1 by creating a UNIQUE Index-->
+        <createIndex tableName="{src_table}" indexName="IDX_{src_table}_UNQ_{col_name}" unique="true">
+            <column name="{col_name}"/>
+        </createIndex>
+        <!-- FK will be added in PHASE 2.5 after target entity table exists -->
+    </changeSet>"""
+            else:
+                xml_fk_content += f"""
+    <changeSet id="{timestamp_id}-add-11-{rel["field"].lower()}" author="{project_name}">
+        <addColumn tableName="{src_table}">
+            <column name="{col_name}" type="UUID">
+                <constraints nullable="{nullable_val}"/>
+            </column>
+        </addColumn>
+        <!-- Guarantee uniqueness at the SQL level for 1:1 by creating a UNIQUE Index-->
         <createIndex tableName="{src_table}" indexName="IDX_{src_table}_UNQ_{col_name}" unique="true">
             <column name="{col_name}"/>
         </createIndex>
@@ -748,7 +925,7 @@ def gen_liquibase_relations_changelog(name, relations_list):
     )
     os.makedirs(target_dir, exist_ok=True)
 
-    filename = f"{target_dir}/{timestamp_id}_02_relations_{name.lower()}.xml"
+    filename = f"{target_dir}/{timestamp_id}-02-relations_{name.lower()}.xml"
     with open(filename, "w", encoding="utf-8") as f:
         f.write(xml_content)
     print(f" -> Generated Liquibase Relations XML: {filename}")
@@ -758,18 +935,18 @@ def gen_liquibase_relations_changelog(name, relations_list):
 def gen_list_view_from_csv(name, fields_list, relations_list=[]):
     lower_name = name.lower()  # Convert the input 'name' to lowercase
 
-    # 1. Generăm coloanele simple din entities.csv
+    # 1. Generate the simple columns from entities.csv
     xml_columns = ""
     for field in fields_list:
         f_name = field["name"]  # Get the field name from the 'fields_list'
-        xml_columns += f'            <column property="{f_name}"/>\n'  # Add a <column> element with the field name as the property
+        xml_columns += f'                <column property="{f_name}"/>\n'  # Add a <column> element with the field name as the property
 
     # 2. Dynamically generate the Fetch Plan and columns for relationships
     xml_fetch_plan_properties = (
         ""  # Initialize an empty string to store the Fetch Plan block.
     )
     for rel in relations_list:
-        if rel["type"] == "N:1":
+        if rel["type"] == "N:1" or rel["type"] == "1:1":
             f_name = rel["field"]  # ex: step, user
 
             # Tell the Fetch Plan to load the relationship property with its basic attributes (_base)
@@ -779,7 +956,7 @@ def gen_list_view_from_csv(name, fields_list, relations_list=[]):
 
             # Add the column to the table using the dot notation (property.instanceNameField)
             # In Jmix, if is directly set property="step", it will automatically call the field marked with @InstanceName from that entity!
-            xml_columns += f'            <column property="{f_name}"/>\n'
+            xml_columns += f'                <column property="{f_name}"/>\n'
 
     # Construct the Fetch Plan block only if relationships are defined
     xml_fetch_plan_block = ""
@@ -787,6 +964,8 @@ def gen_list_view_from_csv(name, fields_list, relations_list=[]):
     if xml_fetch_plan_properties:
         xml_fetch_plan_block = f"""            <fetchPlan extends="_base">
 {xml_fetch_plan_properties}            </fetchPlan>"""
+    else:
+        xml_fetch_plan_block = '            <fetchPlan extends="_base"/>'
 
     # 3. XML FlowUI Structure for a Fully Functional List
     xml_content = f"""<?xml version="1.0" encoding="UTF-8" standalone="no"?>
@@ -795,7 +974,8 @@ def gen_list_view_from_csv(name, fields_list, relations_list=[]):
       title="msg://{lower_name}ListView.title"
       focusComponent="{lower_name}sDataGrid">
     <data readOnly="true">
-        <collection id="{lower_name}sDc" class="{COMPANY}.{project_name}.entity.{name}">
+        <collection id="{lower_name}sDc"
+        			class="{COMPANY}.{project_name}.entity.{name}">
 {xml_fetch_plan_block}
             <loader id="{lower_name}sDl" readOnly="true">
                 <query>
@@ -806,22 +986,48 @@ def gen_list_view_from_csv(name, fields_list, relations_list=[]):
     </data>
     <facets>
         <dataLoadCoordinator auto="true"/>
+        <urlQueryParameters>
+            <genericFilter component="genericFilter"/>
+            <pagination component="pagination"/>
+        </urlQueryParameters>
     </facets>
+    <actions>
+        <action id="selectAction" type="lookup_select"/>
+        <action id="discardAction" type="lookup_discard"/>
+    </actions>
     <layout>
+    	<genericFilter id="genericFilter"
+                       dataLoader="{lower_name}sDl">
+                   <properties include=".*"/>
+        </genericFilter>
         <hbox id="buttonsPanel" classNames="buttons-panel">
-            <button id="createBtn" action="{lower_name}sDataGrid.create"/>
-            <button id="editBtn" action="{lower_name}sDataGrid.edit"/>
-            <button id="removeBtn" action="{lower_name}sDataGrid.remove"/>
+        	<startSlot>
+            	<button id="createBtn" action="{lower_name}sDataGrid.createAction"/>
+             	<button id="editBtn" action="{lower_name}sDataGrid.editAction"/>
+              	<button id="removeBtn" action="{lower_name}sDataGrid.removeAction"/>
+            </startSlot>
+            <endSlot>
+                <simplePagination id="pagination" dataLoader="{lower_name}sDl"/>
+                <gridColumnVisibility dataGrid="{lower_name}sDataGrid" icon="COG" themeNames="icon"/>
+            </endSlot>
         </hbox>
-        <dataGrid id="{lower_name}sDataGrid" width="100%" minHeight="20em" dataContainer="{lower_name}sDc">
+        <dataGrid id="{lower_name}sDataGrid"
+        		  width="100%" minHeight="20em"
+           		  dataContainer="{lower_name}sDc"
+               	  columnReorderingAllowed="true"
+                  multiSortOnShiftClickOnly="true">
             <actions>
-                <action id="create" type="list_create"/>
-                <action id="edit" type="list_edit"/>
-                <action id="remove" type="list_remove"/>
+                <action id="createAction" type="list_create"/>
+                <action id="editAction" type="list_edit"/>
+                <action id="removeAction" type="list_remove"/>
             </actions>
-            <columns>
+            <columns resizable="true">
 {xml_columns}            </columns>
         </dataGrid>
+        <hbox id="lookupActions" visible="false">
+            <button id="selectButton" action="selectAction"/>
+            <button id="discardButton" action="discardAction"/>
+        </hbox>
     </layout>
 </view>
 """
@@ -860,6 +1066,7 @@ public class {name}ListView extends StandardListView<{name}> {{
 
 # Function to generate the detail-view screen
 def gen_detail_view_from_csv(name, fields_list, relations_list=[]):
+    print(f" 🖥️ Starting FlowUI Detail View architecture for entity: '{name}'")
     lower_name = name.lower()
 
     # 1. Generate the form components dynamically
@@ -881,10 +1088,14 @@ def gen_detail_view_from_csv(name, fields_list, relations_list=[]):
                 f'            <textField id="{f_name}Field" property="{f_name}"/>\n'
             )
 
-    # 2. Add the intelligent entityComboBox component for N:1 relationships
+    # 2. Add the intelligent entityComboBox component for N:1, 1:1 and COMPOSITION_1:1 relationships
     xml_relation_data_containers = ""
     for rel in relations_list:
-        if rel["type"] == "N:1":
+        if (
+            rel["type"] == "N:1"
+            or rel["type"] == "1:1"
+            or rel["type"] == "COMPOSITION_1:1"
+        ):
             f_name = rel["field"]  # ex: step, user
             tgt_class = rel["target"]  # ex: Step, User_
             tgt_lower = tgt_class.lower()
@@ -904,7 +1115,13 @@ def gen_detail_view_from_csv(name, fields_list, relations_list=[]):
             xml_relation_data_containers += "        </collection>\n"
 
             # Add the entityCombobox component connected to the itemsContainer
-            xml_form_components += f'            <entityComboBox id="{f_name}Field" property="{f_name}" itemsContainer="{tgt_lower}sDc"/>\n'
+            xml_form_components += f'            <entityComboBox id="{f_name}Field" property="{f_name}" itemsContainer="{tgt_lower}sDc">\n'
+            xml_form_components += "                <actions>\n"
+            xml_form_components += '                    <action id="entityLookupAction" type="entity_lookup"/>\n'
+            xml_form_components += '                    <action id="entityOpenAction" type="entity_open"/>\n'
+            xml_form_components += '                    <action id="entityClearAction" type="entity_clear"/>\n'
+            xml_form_components += "                </actions>\n"
+            xml_form_components += "            </entityComboBox>\n"
 
     # 2. XML FlowUI Structure for detail-view
     xml_content = f"""<?xml version="1.0" encoding="UTF-8" standalone="no"?>
@@ -987,7 +1204,7 @@ public class {name}DetailView extends StandardDetailView<{name}> {{
                 # Check if the composition table has already been injected
                 if f'id="{f_name}DataGrid"' not in xml_tgt_content:
                     print(
-                        f" 🖥️ Injectare dinamică @Composition UI în ecranul: {tgt_class} Detail View"
+                        f" 🖥️ Dynamic injecting @Composition UI in: {tgt_class} Detail View"
                     )
 
                     # 1. Prepare the nested property container
@@ -1283,14 +1500,16 @@ def update_messages_entity(project_dir, base_package, entity_name, traits_list):
                 "".join([" " + c if c.isupper() else c for c in f_name]).strip().lower()
             )
             readable_en = spaced_name.capitalize()
-            target_lines.append(
-                f"{COMPANY}.{project_name}.entity/{n}.{f_name}={readable_en}"
-            )
 
-            translate_label_relation = ask_ollama_translation(readable_en, lang_name)
-            target_lines.append(
-                f"{COMPANY}.{project_name}.entity/{n}.{f_name}={translate_label_relation}"
-            )
+            if locale == "en":
+                target_lines.append(
+                    f"{base_package}.entity/{n}.{f_name}={readable_en}"
+                )
+            else:
+                translate_label_relation = ask_ollama_translation(readable_en, lang_name)
+                target_lines.append(
+                    f"{base_package}.entity/{n}.{f_name}={translate_label_relation}"
+                )
 
         # We are parsing the entity name (e.g., UserStep -> User step)
         spaced_title = (
@@ -1306,17 +1525,18 @@ def update_messages_entity(project_dir, base_package, entity_name, traits_list):
 
                 # Generate beautiful English names (e.g., steps -> Steps)
                 readable_title_en = f_name.capitalize()
-                target_lines.append(
-                    f"{COMPANY}.{project_name}.view.{tgt_lower}/{tgt_lower}DetailView.{f_name}={readable_title_en}"
-                )
 
-                translate_label_composition = ask_ollama_translation(
-                    readable_title_en, lang_name
-                )
-
-                target_lines.append(
-                    f"{COMPANY}.{project_name}.view.{tgt_lower}/{tgt_lower}DetailView.{f_name}={translate_label_composition}"
-                )
+                if locale == "en":
+                    target_lines.append(
+                        f"{base_package}.view.{tgt_lower}/{tgt_lower}DetailView.{f_name}={readable_title_en}"
+                    )
+                else:
+                    translate_label_composition = ask_ollama_translation(
+                        readable_title_en, lang_name
+                    )
+                    target_lines.append(
+                        f"{base_package}.view.{tgt_lower}/{tgt_lower}DetailView.{f_name}={translate_label_composition}"
+                    )
 
         # --- INTERNAL LINE WRITER WITH STRICT EQUALITY PREFIX MATCHING ---
         def append_unique(file_path, lines_to_add):
@@ -1425,13 +1645,14 @@ def cmd_init_project(project_name, target_group, lang_input="en"):
     base_package = (
         f"{target_group.strip().strip('.')}.{project_name.strip().strip('.')}"
     )
-    repo_url = "https://github.com/jmix-framework/jmix-ai-template"
+    # Switch from original https://github.com/jmix-framework/jmix-ai-template to my fork, because the original disapear
+    repo_url = "https://github.com/florintanasa/jmix-ai-template"
     current_dir = os.getcwd()
     target_dir = os.path.join(current_dir, project_name)
 
     # Keep the exact casing for file names and properties (e.g., ro_RO, ro_MD)
     lang_suffix = lang_input.strip()
-    lang_key_for_map = lang_suffix.lower()
+    lang_key_for_map = lang_suffix
 
     print(f"\n[*] Initializing New Jmix Project: '{project_name}'")
     print(f"[*] Group ID:                 {target_group}")
@@ -1445,10 +1666,14 @@ def cmd_init_project(project_name, target_group, lang_input="en"):
         )
         sys.exit(1)
 
-    print("[*] Step 1: Downloading official Jmix starter template...")
+    print(
+        "[*] Step 1: Downloading Jmix starter template..."
+    )  # eliminate official because not more exist
     try:
+        # subprocess.run(["git", "clone", "--depth", "1", repo_url, project_name], check=True)
         subprocess.run(
-            ["git", "clone", "--depth", "1", repo_url, project_name], check=True
+            ["git", "clone", "--depth", "1", "-b", "v2.8.2", repo_url, project_name],
+            check=True,
         )
     except Exception as e:
         print(f"[-] Critical Error executing Git clone: {e}")
@@ -1643,6 +1868,25 @@ def cmd_init_project(project_name, target_group, lang_input="en"):
     if os.path.exists(gradlew_path):
         os.chmod(gradlew_path, 0o755)
 
+    print("[*] Step 3: Initializing a fresh Git repository...")
+    try:
+        # Run 'git init' inside the project folder
+        subprocess.run(["git", "init"], cwd=target_dir, check=True)
+
+        # Add all the template files to the new repository
+        subprocess.run(["git", "add", "."], cwd=target_dir, check=True)
+
+        # Create the first commit with the message 'Initial commit'
+        subprocess.run(
+            ["git", "commit", "-m", "Initial commit"], cwd=target_dir, check=True
+        )
+        print("✅ Project initialized successfully with a fresh Git history!")
+
+    except subprocess.CalledProcessError:
+        print(
+            "Warning: Template was cloned, but failed to initialize fresh Git repository automatically."
+        )
+
     print("\n" + "=" * 60)
     print(f"[+] SUCCESS: Jmix project '{project_name}' successfully initialized!")
     print(f"[+] Target core locale: {lang_suffix}")
@@ -1685,7 +1929,7 @@ def inject_relations_into_existing_user(relations_list):
 
             # Prevent property duplication
             if f"private {tgt_class} {f_name};" not in content:
-                print(f"   -> Injectare proprietate @ManyToOne '{f_name}' în User.java")
+                print(f"   -> Injectin property @ManyToOne '{f_name}' in User.java")
 
                 # Build the annotations and the Java field
                 sql_col = f"{f_name.upper()}_ID"
@@ -1995,6 +2239,7 @@ public interface {class_name} {{
     )
 
 
+# Function to sort entities by relations
 def get_sorted_entities_by_dependency():
     """
     Analyzes entities.csv and relations.csv to sort entities topologically.
@@ -2012,11 +2257,6 @@ def get_sorted_entities_by_dependency():
             name = row["entity_name"].strip()
             if name:
                 all_entities.add(name)
-
-    # Jmix system entities tracking fallback
-    if "User" not in all_entities and os.path.exists("relations.csv"):
-        # If User is used as a relation target but not defined in entities, add it
-        all_entities.add("User")
 
     # 2. Build dependency tracker (who needs to be created before whom)
     dependencies = {ent: set() for ent in all_entities}
@@ -2065,6 +2305,11 @@ def get_sorted_entities_by_dependency():
         if entity not in visited:
             visit(entity)
 
+    # Jmix system entities tracking fallback
+    if "User" not in all_entities and os.path.exists("relations.csv"):
+        # If User is used as a relation target but not defined in entities, add it
+        sorted_entities.append("User")
+
     return sorted_entities
 
 
@@ -2104,7 +2349,19 @@ if __name__ == "__main__":
         sys.exit(1)
 
     if len(sys.argv) == 1:
-        print("Usage: python3 jmix-cli.py [entity|ui-list|ui-detail|security] [Name]")
+        print("=" * 70)
+        print("JMIX CLI - Command Reference")
+        print("=" * 70)
+        print("Available commands:")
+        print("  python3 jmix-cli.py entity-all   - Generate ALL entities + liquibase")
+        print("  python3 jmix-cli.py entity <Name> - Generate single entity")
+        print("  python3 jmix-cli.py security      - Generate security roles")
+        print("  python3 jmix-cli.py ui-list-all   - Generate ALL list views")
+        print("  python3 jmix-cli.py ui-list <Name> - Generate single list view")
+        print("  python3 jmix-cli.py ui-detail-all - Generate ALL detail views")
+        print("  python3 jmix-cli.py ui-detail <Name> - Generate single detail view")
+        print("  python3 jmix-cli.py build-all     - Full generation (all phases)")
+        print("=" * 70)
         sys.exit(1)
 
     action = sys.argv[1].lower()  # Ex: entity, ui-list, ui-detail, security
@@ -2116,22 +2373,17 @@ if __name__ == "__main__":
         gen_jmix_resource_roles_from_csv()
         sys.exit(0)
 
-    elif action == "gen-entities":
-        print("[*] Launching automatic sequential entity generation engine...")
+    elif action == "entity-all":
+        print("[*] Launching ENTITY-ONLY generation for ALL entities...")
         ordered_list = get_sorted_entities_by_dependency()
         print(f"[*] Calculated generation sequence: {ordered_list}")
 
         for ent in ordered_list:
             if ent == "User":
-                print(
-                    "👤 System User detected in batch queue. Skipping base table creation..."
-                )
                 relations_list = get_relations_from_csv("relations.csv", "User")
                 if relations_list:
                     gen_liquibase_relations_changelog("User", relations_list)
                     inject_relations_into_existing_user(relations_list)
-
-                    # Ensure User translation runs safely via our parametric function
                     update_messages_entity(
                         project_dir=".",
                         base_package=COMPANY + "." + PROJECT,
@@ -2139,7 +2391,6 @@ if __name__ == "__main__":
                         traits_list=[],
                     )
             else:
-                print(f"▶️ Automating Entity generation for: {ent}")
                 traits = get_traits_from_csv("traits.csv", ent)
                 fields_list = get_entities_from_csv("entities.csv", ent)
                 relations_list = get_relations_from_csv("relations.csv", ent)
@@ -2152,7 +2403,6 @@ if __name__ == "__main__":
                     if relations_list:
                         gen_liquibase_relations_changelog(ent, relations_list)
 
-                    # DYNAMIC TRAITS COLLECTION: Parse field names from entities.csv for update_messages_entity
                     computed_traits_list = []
                     if os.path.exists("entities.csv"):
                         with open("entities.csv", mode="r", encoding="utf-8") as f:
@@ -2162,52 +2412,388 @@ if __name__ == "__main__":
                                     computed_traits_list.append(
                                         row["field_name"].strip()
                                     )
-
                     if not computed_traits_list:
                         computed_traits_list = ["name"]
 
-                    # TRIGGER MESSAGES: Generate parametric bilingv messages inside the orchestration loop!
                     update_messages_entity(
-                        project_dir=".",
-                        base_package=COMPANY + "." + PROJECT,
-                        entity_name=ent,
-                        traits_list=computed_traits_list,
+                        ".", COMPANY + "." + PROJECT, ent, computed_traits_list
                     )
 
-                    # FIX: Trigger messages translation for EVERY entity automatically in the loop!
-                    update_messages_entity(
-                        project_dir=".",
-                        base_package=COMPANY + "." + PROJECT,
-                        entity_name=ent,
-                        traits_list=computed_traits_list,
-                    )
+        # PHASE 2.5: Finalize COMPOSITION relationships
+        print("\n[⚡] PHASE 2.5: Finalizing Composition relationships...")
+        if os.path.exists("relations.csv"):
+            with open("relations.csv", mode="r", encoding="utf-8") as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    r_type = row["relation_type"].strip()
+                    if r_type == "COMPOSITION_1:1":
+                        src_class = row["source_entity"].strip()
+                        tgt_class = row["target_entity"].strip()
+                        f_name = row["field_name"].strip()
+
+                        src_file_path = f"src/main/java/{company_path}/{project_name}/entity/{src_class}.java"
+                        tgt_file_path = f"src/main/java/{company_path}/{project_name}/entity/{tgt_class}.java"
+
+                        if os.path.exists(src_file_path) and os.path.exists(
+                            tgt_file_path
+                        ):
+                            with open(src_file_path, "r", encoding="utf-8") as sf:
+                                src_content = sf.read()
+                            if f"private {tgt_class} {f_name};" not in src_content:
+                                print(f" 🔗 Finalizing @Composition 1:1 in {src_class}")
+                                sql_fk_col = f"{f_name.upper()}_ID"
+                                comp_field = f'    @Composition\n    @JoinColumn(name = "{sql_fk_col}")\n    @OneToOne(fetch = FetchType.LAZY)\n    private {tgt_class} {f_name};\n\n'
+                                comp_caps = f_name[0].upper() + f_name[1:]
+                                comp_methods = f"    public {tgt_class} get{comp_caps}() {{\n        return {f_name};\n    }}\n\n"
+                                comp_methods += f"    public void set{comp_caps}({tgt_class} {f_name}) {{\n        this.{f_name} = {f_name};\n    }}\n\n"
+
+                                src_content = inject_import_if_missing(
+                                    src_content,
+                                    "io.jmix.core.metamodel.annotation.Composition",
+                                )
+                                src_content = inject_import_if_missing(
+                                    src_content, "jakarta.persistence.OneToOne"
+                                )
+                                src_content = inject_import_if_missing(
+                                    src_content, "jakarta.persistence.JoinColumn"
+                                )
+                                src_content = inject_import_if_missing(
+                                    src_content, "jakarta.persistence.FetchType"
+                                )
+
+                                if "    public UUID getId()" in src_content:
+                                    src_content = src_content.replace(
+                                        "    public UUID getId()",
+                                        f"{comp_field}    public UUID getId()",
+                                    )
+
+                                last_brace = src_content.rfind("}")
+                                if last_brace != -1:
+                                    src_content = (
+                                        src_content[:last_brace]
+                                        + "\n"
+                                        + comp_methods
+                                        + src_content[last_brace:]
+                                    )
+
+                                with open(src_file_path, "w", encoding="utf-8") as sf:
+                                    sf.write(src_content)
+
+                            with open(tgt_file_path, "r", encoding="utf-8") as tf:
+                                tgt_content = tf.read()
+                            inv_field_name = to_camel_case_lower(src_class)
+                            if (
+                                f"private {src_class} {inv_field_name};"
+                                not in tgt_content
+                            ):
+                                print(f" 🔗 Finalizing inverse 1:1 in {tgt_class}")
+                                inv_field = f'    @OneToOne(fetch = FetchType.LAZY, mappedBy = "{f_name}")\n    private {src_class} {inv_field_name};\n\n'
+                                inv_caps = (
+                                    inv_field_name[0].upper() + inv_field_name[1:]
+                                )
+                                inv_methods = f"    public {src_class} get{inv_caps}() {{\n        return {inv_field_name};\n    }}\n\n"
+                                inv_methods += f"    public void set{inv_caps}({src_class} {inv_field_name}) {{\n        this.{inv_field_name} = {inv_field_name};\n    }}\n\n"
+
+                                tgt_content = inject_import_if_missing(
+                                    tgt_content, "jakarta.persistence.OneToOne"
+                                )
+                                tgt_content = inject_import_if_missing(
+                                    tgt_content, "jakarta.persistence.FetchType"
+                                )
+
+                                if "    public UUID getId()" in tgt_content:
+                                    tgt_content = tgt_content.replace(
+                                        "    public UUID getId()",
+                                        f"{inv_field}    public UUID getId()",
+                                    )
+
+                                last_brace = tgt_content.rfind("}")
+                                if last_brace != -1:
+                                    tgt_content = (
+                                        tgt_content[:last_brace]
+                                        + "\n"
+                                        + inv_methods
+                                        + tgt_content[last_brace:]
+                                    )
+
+                                with open(tgt_file_path, "w", encoding="utf-8") as tf:
+                                    tf.write(tgt_content)
+
+                            timestamp_id_fk = datetime.now().strftime("%Y%m%d%H%M%S")
+                            fk_changelog = f"""<?xml version="1.0" encoding="UTF-8" ?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+                      http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd"
+    objectQuotingStrategy="QUOTE_ONLY_RESERVED_WORDS"
+>
+    <changeSet id="{timestamp_id_fk}-add-fk-{f_name}" author="{project_name}">
+        <addForeignKeyConstraint baseTableName="{src_class.upper()}"
+                                  baseColumnNames="{f_name.upper()}_ID"
+                                  constraintName="FK_{src_class.upper()}_ON_{f_name}"
+                                  referencedTableName="{tgt_class.upper()}"
+                                  referencedColumnNames="ID"/>
+    </changeSet>
+</databaseChangeLog>
+"""
+                            current_year = datetime.now().strftime("%Y")
+                            current_month = datetime.now().strftime("%m")
+                            fk_dir = f"src/main/resources/{company_path}/{project_name}/liquibase/changelog/{current_year}/{current_month}"
+                            os.makedirs(fk_dir, exist_ok=True)
+                            fk_file = f"{fk_dir}/{timestamp_id_fk}-03-fk-{src_class.lower()}.xml"
+                            with open(fk_file, "w", encoding="utf-8") as fk_f:
+                                fk_f.write(fk_changelog)
+                            print(f" 🔗 Added FK constraint changelog: {fk_file}")
+
+        print("\n✅ Entity generation completed!")
         sys.exit(0)
 
-    elif action == "gen-ui":
-        print("[*] Launching automatic global FlowUI generation engine...")
+    elif action == "ui-list-all":
+        print("[*] Launching UI-LIST generation for ALL entities...")
         ordered_list = get_sorted_entities_by_dependency()
-
         for ent in ordered_list:
-            print(f"📺 Generating UI layouts (List & Detail) for: {ent}")
-            if ent == "User":
-                relations_list = get_relations_from_csv("relations.csv", "User")
-                inject_list_ui_into_existing_user(relations_list)
-                inject_detail_ui_into_existing_user(relations_list)
-            else:
-                fields_list = get_entities_from_csv("entities.csv", ent)
-                relations_list = get_relations_from_csv("relations.csv", ent)
-                if fields_list:
-                    gen_list_view_from_csv(ent, fields_list, relations_list)
-                    gen_detail_view_from_csv(ent, fields_list, relations_list)
-                    update_menu(ent)
+            fields_list = get_entities_from_csv("entities.csv", ent)
+            relations_list = get_relations_from_csv("relations.csv", ent)
+            if fields_list:
+                gen_list_view_from_csv(ent, fields_list, relations_list)
+        print("\n✅ UI List views generation completed!")
+        sys.exit(0)
+
+    elif action == "ui-detail-all":
+        print("[*] Launching UI-DETAIL generation for ALL entities...")
+        ordered_list = get_sorted_entities_by_dependency()
+        for ent in ordered_list:
+            fields_list = get_entities_from_csv("entities.csv", ent)
+            relations_list = get_relations_from_csv("relations.csv", ent)
+            if fields_list:
+                gen_detail_view_from_csv(ent, fields_list, relations_list)
+        print("\n✅ UI Detail views generation completed!")
         sys.exit(0)
 
     elif action == "build-all":
-        print("[⚡] TRIGGERING FULL ARCHITECTURE BUILD-ALL SEQUENCE...")
-        # Step 1: Run entities setup
+        print("\n" + "=" * 70)
+        print("[⚡] TRIGGERING FULL ARCHITECTURE BUILD-ALL INDUSTRIAL SEQUENCE...")
+        print("=" * 70)
+
+        # 1. Resolve and calculate the deterministic dependency graph tree sequence
         ordered_list = get_sorted_entities_by_dependency()
-        # (This command can trigger gen-entities, gen-ui, and security in sequence)
-        print("[⚡] Project scaffolding built successfully from CSV maps!")
+        print(f"[*] Calculated execution flow pipeline: {ordered_list}\n")
+
+        # ======================================================================
+        # PHASE 1: SEQUENTIAL ENTITY & LIQUIBASE SCRIPTER SCATTERING
+        # ======================================================================
+        print("[⚡] PHASE 1: Scaffolding Data Models and Database Changelogs...")
+        for ent in ordered_list:
+            if ent == "User":
+                print(
+                    "👤 System User discovered in pipeline. Triggering surgical relationship infiltration..."
+                )
+                relations_list = get_relations_from_csv("relations.csv", "User")
+                if relations_list:
+                    gen_liquibase_relations_changelog("User", relations_list)
+                    inject_relations_into_existing_user(relations_list)
+                    update_messages_entity(".", COMPANY + "." + PROJECT, "User", [])
+            else:
+                print(f"   ▶️ Building Domain Model: {ent}")
+                traits = get_traits_from_csv("traits.csv", ent)
+                fields_list = get_entities_from_csv("entities.csv", ent)
+                relations_list = get_relations_from_csv("relations.csv", ent)
+
+                if fields_list:
+                    gen_entity_mechanic_from_csv(
+                        ent, fields_list, traits, relations_list
+                    )
+                    gen_liquibase_changelog_from_csv(ent, fields_list, traits)
+                    if relations_list:
+                        gen_liquibase_relations_changelog(ent, relations_list)
+
+                    # Calculate entity specific traits array properties from entities.csv layout
+                    computed_traits_list = []
+                    if os.path.exists("entities.csv"):
+                        with open("entities.csv", mode="r", encoding="utf-8") as f:
+                            reader = csv.DictReader(f)
+                            for row in reader:
+                                if row["entity_name"].strip() == ent.strip():
+                                    computed_traits_list.append(
+                                        row["field_name"].strip()
+                                    )
+                    if not computed_traits_list:
+                        computed_traits_list = ["name"]
+
+                    # Inject bilingv localization assets dynamically
+                    update_messages_entity(
+                        ".", COMPANY + "." + PROJECT, ent, computed_traits_list
+                    )
+
+        # ======================================================================
+        # PHASE 2.5: FINALIZE COMPOSITION RELATIONSHIPS (post-entity generation)
+        # ======================================================================
+        print("\n[⚡] PHASE 2.5: Finalizing Composition relationships...")
+        if os.path.exists("relations.csv"):
+            with open("relations.csv", mode="r", encoding="utf-8") as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    r_type = row["relation_type"].strip()
+                    if r_type == "COMPOSITION_1:1":
+                        src_class = row["source_entity"].strip()
+                        tgt_class = row["target_entity"].strip()
+                        f_name = row["field_name"].strip()
+
+                        src_file_path = f"src/main/java/{company_path}/{project_name}/entity/{src_class}.java"
+                        tgt_file_path = f"src/main/java/{company_path}/{project_name}/entity/{tgt_class}.java"
+
+                        if os.path.exists(src_file_path) and os.path.exists(
+                            tgt_file_path
+                        ):
+                            # Inject Composition field into source entity (parent)
+                            with open(src_file_path, "r", encoding="utf-8") as sf:
+                                src_content = sf.read()
+                            if f"private {tgt_class} {f_name};" not in src_content:
+                                print(f" 🔗 Finalizing @Composition 1:1 in {src_class}")
+                                sql_fk_col = f"{f_name.upper()}_ID"
+                                comp_field = f'    @Composition\n    @JoinColumn(name = "{sql_fk_col}")\n    @OneToOne(fetch = FetchType.LAZY)\n    private {tgt_class} {f_name};\n\n'
+                                comp_caps = f_name[0].upper() + f_name[1:]
+                                comp_methods = f"    public {tgt_class} get{comp_caps}() {{\n        return {f_name};\n    }}\n\n"
+                                comp_methods += f"    public void set{comp_caps}({tgt_class} {f_name}) {{\n        this.{f_name} = {f_name};\n    }}\n\n"
+
+                                src_content = inject_import_if_missing(
+                                    src_content,
+                                    "io.jmix.core.metamodel.annotation.Composition",
+                                )
+                                src_content = inject_import_if_missing(
+                                    src_content, "jakarta.persistence.OneToOne"
+                                )
+                                src_content = inject_import_if_missing(
+                                    src_content, "jakarta.persistence.JoinColumn"
+                                )
+                                src_content = inject_import_if_missing(
+                                    src_content, "jakarta.persistence.FetchType"
+                                )
+
+                                if "    public UUID getId()" in src_content:
+                                    src_content = src_content.replace(
+                                        "    public UUID getId()",
+                                        f"{comp_field}    public UUID getId()",
+                                    )
+
+                                last_brace = src_content.rfind("}")
+                                if last_brace != -1:
+                                    src_content = (
+                                        src_content[:last_brace]
+                                        + "\n"
+                                        + comp_methods
+                                        + src_content[last_brace:]
+                                    )
+
+                                with open(src_file_path, "w", encoding="utf-8") as sf:
+                                    sf.write(src_content)
+
+                            # Inject inverse mappedBy in target entity (child)
+                            with open(tgt_file_path, "r", encoding="utf-8") as tf:
+                                tgt_content = tf.read()
+                            inv_field_name = to_camel_case_lower(src_class)
+                            if (
+                                f"private {src_class} {inv_field_name};"
+                                not in tgt_content
+                            ):
+                                print(f" 🔗 Finalizing inverse 1:1 in {tgt_class}")
+                                inv_field = f'    @OneToOne(fetch = FetchType.LAZY, mappedBy = "{f_name}")\n    private {src_class} {inv_field_name};\n\n'
+                                inv_caps = (
+                                    inv_field_name[0].upper() + inv_field_name[1:]
+                                )
+                                inv_methods = f"    public {src_class} get{inv_caps}() {{\n        return {inv_field_name};\n    }}\n\n"
+                                inv_methods += f"    public void set{inv_caps}({src_class} {inv_field_name}) {{\n        this.{inv_field_name} = {inv_field_name};\n    }}\n\n"
+
+                                tgt_content = inject_import_if_missing(
+                                    tgt_content, "jakarta.persistence.OneToOne"
+                                )
+                                tgt_content = inject_import_if_missing(
+                                    tgt_content, "jakarta.persistence.FetchType"
+                                )
+
+                                if "    public UUID getId()" in tgt_content:
+                                    tgt_content = tgt_content.replace(
+                                        "    public UUID getId()",
+                                        f"{inv_field}    public UUID getId()",
+                                    )
+
+                                last_brace = tgt_content.rfind("}")
+                                if last_brace != -1:
+                                    tgt_content = (
+                                        tgt_content[:last_brace]
+                                        + "\n"
+                                        + inv_methods
+                                        + tgt_content[last_brace:]
+                                    )
+
+                                with open(tgt_file_path, "w", encoding="utf-8") as tf:
+                                    tf.write(tgt_content)
+
+                            # Add FK constraint changelog for Composition 1:1
+                            timestamp_id_fk = datetime.now().strftime("%Y%m%d%H%M%S")
+                            fk_changelog = f"""<?xml version="1.0" encoding="UTF-8" ?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+                      http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd"
+    objectQuotingStrategy="QUOTE_ONLY_RESERVED_WORDS"
+>
+    <changeSet id="{timestamp_id_fk}-add-fk-{f_name}" author="{project_name}">
+        <addForeignKeyConstraint baseTableName="{src_class.upper()}"
+                                  baseColumnNames="{f_name.upper()}_ID"
+                                  constraintName="FK_{src_class.upper()}_ON_{f_name}"
+                                  referencedTableName="{tgt_class.upper()}"
+                                  referencedColumnNames="ID"/>
+    </changeSet>
+</databaseChangeLog>
+"""
+                            current_year = datetime.now().strftime("%Y")
+                            current_month = datetime.now().strftime("%m")
+                            fk_dir = f"src/main/resources/{company_path}/{project_name}/liquibase/changelog/{current_year}/{current_month}"
+                            os.makedirs(fk_dir, exist_ok=True)
+                            fk_file = f"{fk_dir}/{timestamp_id_fk}-03-fk-{src_class.lower()}.xml"
+                            with open(fk_file, "w", encoding="utf-8") as fk_f:
+                                fk_f.write(fk_changelog)
+                            print(f" 🔗 Added FK constraint changelog: {fk_file}")
+
+        # ======================================================================
+        # PHASE 2: AUTOMATED FLOWUI STRUCTURAL VIEW ARCHITECTURING
+        # ======================================================================
+        print(
+            "\n[⚡] PHASE 2: Architecturing FlowUI Screen Descriptors & Controllers..."
+        )
+        for ent in ordered_list:
+            print(f"   📺 Compiling Layout XML and Java Views for: {ent}")
+            if ent == "User":
+                relations_list = get_relations_from_csv("relations.csv", "User")
+                if relations_list:
+                    inject_list_ui_into_existing_user(relations_list)
+                    inject_detail_ui_into_existing_user(relations_list)
+            else:
+                # Dynamically fetch ONLY the clean, specific rows for the current entity
+                # This guarantees the dictionary contains the correct keys ('field_name', etc.)
+                current_fields = get_entities_from_csv("entities.csv", ent)
+                relations_list = get_relations_from_csv("relations.csv", ent)
+
+                if current_fields:
+                    gen_list_view_from_csv(ent, current_fields, relations_list)
+                    # Passing current_fields instead of the corrupted global fields_list variable
+                    gen_detail_view_from_csv(ent, current_fields, relations_list)
+                    update_menu(ent)
+
+        # ======================================================================
+        # PHASE 3: PARAMETRIC CONTEXT ACCESS SECURITY ROLE Blueprints
+        # ======================================================================
+        print(
+            "\n[⚡] PHASE 3: Compiling Access Control Security Roles Interface blueprinter..."
+        )
+        gen_jmix_resource_roles_from_csv()
+
+        print("\n" + "=" * 70)
+        print("[⚡] SUCCESS: Project scaffolding built perfectly from CSV maps!")
+        print("=" * 70 + "\n")
         sys.exit(0)
 
     # ======================================================================
