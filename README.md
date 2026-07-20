@@ -1,5 +1,5 @@
 # Jmix Lightweight CLI Engine
-#### The code is in very alpha state, practical, I learning Python with this (is my first code in python)
+#### The code is in a very alpha state, I'm basically learning Python with it (it's my first code in Python) with a lot of help from the AI ​​partner: 
 ---
 A high-performance, parametric, and agnostic Command Line Interface (CLI) tool designed to automate architecture blueprinting for **Jmix 2.x / Spring Boot** applications. 
 
