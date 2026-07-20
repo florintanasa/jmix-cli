@@ -141,4 +141,4 @@ ollama run translategemma:4b
 
 ## 📄 To do...
 
-I try to split by modules jmix-cli.py 👉 **[Agile Project Management System - branch _modules_](https://github.com/florintanasa/agilepm/tree/modules)
+I try to split by modules jmix-cli.py 👉 **[Agile Project Management System - branch _modules_](https://github.com/florintanasa/agilepm/tree/modules)**
