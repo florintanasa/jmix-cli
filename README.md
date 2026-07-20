@@ -84,18 +84,28 @@ Generates Java entity blueprints, audited traits, relational variables, create l
 > Runs entities that do not depend on other entities first, followed by entities that depend on them.
 
 ```bash
+# Generate single entity + Liquibase changelogs + Ceate labels in messages_xx.properties
 python3 jmix-cli.py entity [EntityName]
 # Example: python3 jmix-cli.py entity UserStep
+# Or
+# Generate ALL entities + Liquibase changelogs + Ceate labels in messages_xx.properties
+python3 jmix-cli.py entity-all
 ```
 
 ### 3. Generate FlowUI Data Views
 Generates production-ready layouts with structural lazy fetchPlans, lookup tables, forms, automatic menu indexing, and dynamic composition grids.
 ```bash
-# Generate List View layout and wire to application menu
+# Generate single List View layout and wire to application menu
 python3 jmix-cli.py ui-list [EntityName]
+# Or
+# Generate ALL list views
+python3 jmix-cli.py ui-list-all
 
-# Generate Form/Detail View layout and handle sub-composition bindings
+# Generate single Form/Detail View layout and handle sub-composition bindings
 python3 jmix-cli.py ui-detail [EntityName]
+# Or
+# Generate ALL detail views
+python3 jmix-cli.py ui-detail-all
 ```
 
 ### 4. Generate Roles
@@ -103,6 +113,11 @@ Roles ensure the security of entities, screens and menus. After generation, role
 ```bash
 # Generate Roles defined in roles.csv files
 python3 jmix-cli.py security
+```
+
+### 5. Generate ALL phases
+```bash
+python3 jmix-cli.py build-all
 ```
 
 ---
