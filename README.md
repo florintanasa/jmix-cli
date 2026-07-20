@@ -138,3 +138,7 @@ Optimized to run seamlessly inside ultra-lightweight developer environments like
 # Ensure the local translation model is active before execution to be more fast in translate
 ollama run translategemma:4b
 ```
+
+## 📄 To do...
+
+I try to split by module jmix-cli.py 👉 **[Agile Project Management System - branch _modules_](https://github.com/florintanasa/agilepm/tree/modules)
