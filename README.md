@@ -16,7 +16,7 @@ This engine eliminates the heavy RAM consumption of traditional IDEs by complete
 ---
 ## 🚀 Initialize a new clean standard Jmix template
 
-Next command prepare for you a new project using [jmix-ai-template](https://github.com/florintanasa/jmix-ai-template) branche v2.8.2 ( the original repository not exist anymore ~~[jmix-ai-template](https://github.com/jmix-framework/jmix-ai-template)~~ :
+Next command prepare for you a new project using [jmix-ai-template](https://github.com/florintanasa/jmix-ai-template), branche v2.8.2 ( the original repository not exist anymore ~~[jmix-ai-template](https://github.com/jmix-framework/jmix-ai-template)~~ :
 ```bash
 python jmix-cli.py init <project_name> <target_group> [locale]
 ```
