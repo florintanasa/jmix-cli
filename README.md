@@ -38,7 +38,6 @@ jmix-cli/
 │   └── views/               # lists and detail forms
 ├── pyproject.toml           # PyPI configuration
 ├── README.md
-├── README_ro.md
 └── LICENSE
 ```
 
@@ -52,8 +51,10 @@ git clone https://github.com/florintanasa/jmix-cli.git
 cd jmix-cli
 
 # copy the tool to an accessible location
-cp jmix-cli.py ~/.local/bin/jmix-cli
-chmod +x ~/.local/bin/jmix-cli
+cp jmix-cli jmix-cli.py -r jmix_cli/ ~/.local/bin/
+
+# test
+jmix-cli --help
 ```
 
 After this you can run `jmix-cli` from any directory.
@@ -89,13 +90,13 @@ Place these files in the root of your Jmix project:
 
 ```bash
 # generate everything: entities, database, interface, security, menu
-python3 jmix-cli.py build-all
+jmix-cli build-all
 
 # or step by step
-python3 jmix-cli.py entity-all
-python3 jmix-cli.py ui-list-all
-python3 jmix-cli.py ui-detail-all
-python3 jmix-cli.py security
+jmix-cli entity-all
+jmix-cli ui-list-all
+jmix-cli ui-detail-all
+jmix-cli security
 ```
 
 ### 3. Start the application
@@ -110,18 +111,18 @@ The application will be available in the browser, usually at `http://localhost:8
 
 | Command | What it does |
 |---|---|
-| `jmix-cli.py init <name> <group> [locale]` | Creates a new Jmix project |
-| `jmix-cli.py entity <EntityName>` | Generates a single entity |
-| `jmix-cli.py entity-all` | Generates all entities from CSV |
-| `jmix-cli.py ui-list <EntityName>` | Generates the list for one entity |
-| `jmix-cli.py ui-list-all` | Generates lists for all entities |
-| `jmix-cli.py ui-detail <EntityName>` | Generates the detail form |
-| `jmix-cli.py ui-detail-all` | Generates forms for all entities |
-| `jmix-cli.py security` | Generates security roles |
-| `jmix-cli.py migrate <EntityName>` | Incremental migration: new columns, renames, changes |
-| `jmix-cli.py migrate-all` | Incremental migration for all entities |
-| `jmix-cli.py build-all` | ALL steps from 1 to 5 |
-| `jmix-cli.py <command> --dry-run` | Tests generation in a temporary directory, without modifying the project |
+| `jmix-cli init <name> <group> [locale]` | Creates a new Jmix project |
+| `jmix-cli entity <EntityName>` | Generates a single entity |
+| `jmix-cli entity-all` | Generates all entities from CSV |
+| `jmix-cli ui-list <EntityName>` | Generates the list for one entity |
+| `jmix-cli ui-list-all` | Generates lists for all entities |
+| `jmix-cli ui-detail <EntityName>` | Generates the detail form |
+| `jmix-cli ui-detail-all` | Generates forms for all entities |
+| `jmix-cli security` | Generates security roles |
+| `jmix-cli migrate <EntityName>` | Incremental migration: new columns, renames, changes |
+| `jmix-cli migrate-all` | Incremental migration for all entities |
+| `jmix-cli build-all` | ALL steps from 1 to 5 |
+| `jmix-cli <command> --dry-run` | Tests generation in a temporary directory, without modifying the project |
 
 Useful options:
 - `--dry-run` — preview in `/tmp`, ideal for learning and experimenting without risks
@@ -164,7 +165,7 @@ For `N:N` relationships, the `ownership` column controls how the UI is generated
 `--dry-run` copies the project into a temporary directory in `/tmp`, runs all commands there, and shows you which files would be modified, without touching the real project.
 
 ```bash
-python3 jmix-cli.py build-all --dry-run
+jmix-cli build-all --dry-run
 ```
 
 Then you can compare with:
@@ -182,8 +183,8 @@ Once you have a working application, if you modify `entities.csv` or `relations.
 - automatically update the web interface to stay in sync with the data
 
 ```bash
-python3 jmix-cli.py migrate <EntityName>
-python3 jmix-cli.py migrate-all --force
+jmix-cli migrate <EntityName>
+jmix-cli migrate-all --force
 ```
 
 ## Development
