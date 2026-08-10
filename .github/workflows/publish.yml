@@ -1,0 +1,30 @@
+name: Publish Python Package to PyPI
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install uv (Rust-based ultra fast tool)
+        uses: astral-sh/setup-uv@v5
+
+      - name: Build package
+        run: uv build
+
+      - name: Publish package to PyPI
+        run: uv publish
