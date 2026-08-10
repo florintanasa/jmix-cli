@@ -21,7 +21,7 @@ Then, with a single command, the generator automatically creates:
 
 You no longer need to learn Spring, JPA, Vaadin or Liquibase to have a working application.
 
-## Simple project structure
+## Project structure
 
 ```
 jmix-cli/
