@@ -1,4 +1,6 @@
 # Jmix CLI — Relational database application generator for non-programmers
+###### The code is in a beta state, I'm basically learning Python with it (it's my first code in Python) with a lot of help from the AI ​​partner
+---
 
 This project is primarily intended for **non-programmers** who need practical tools to work with structured data: **researchers at BRGVSV** (Vegetal Genetic Resources Bank "Mihai Cristea" Suceava), **accountants**, **economists**, **educators**, **teachers**, **students**, and any user who needs to build a functional application over a relational database, without writing Java code manually.
 
@@ -107,6 +109,62 @@ jmix-cli security
 
 The application will be available in the browser, usually at `http://localhost:8080`.
 
+
+## 🚀 Initialize a new clean standard Jmix template
+
+Next command prepare for you a new project using [jmix-ai-template](https://github.com/florintanasa/jmix-ai-template), branche v2.8.2 ( the original repository not exist anymore ~~[jmix-ai-template](https://github.com/jmix-framework/jmix-ai-template)~~ :
+```bash
+jmix-cli init <project_name> <target_group> [locale]
+```
+   
+Example: 
+```bash
+jmix-cli init onboarding com.company ro
+```
+  
+---
+
+## 🛠️ Configuration Files Structure
+
+The engine expects three CSV files (next files are for example) in the root folder of your workspace:
+
+### 1. `traits.csv`
+Defines standard JPA infrastructure mechanisms for each domain entity.
+```csv
+entity_name,versioned,audit_of_creation,audit_of_modification,soft_delete
+Department,true,false,false,false
+UserStep,true,true,true,true
+```
+
+### 2. `entities.csv`
+Declares the custom business attributes (fields) without explicit relationship definitions.
+```csv
+entity_name,field_name,field_type,mandatory,unique
+Department,name,String,true,false
+UserStep,dueDate,LocalDate,true,false
+UserStep,sortValue,Integer,false,false
+```
+
+### 3. `relations.csv`
+Maps structural relationships across entities including standard associations and complex compositions.
+```csv
+source_entity,relation_type,target_entity,field_name,mandatory,ownership
+User,N:1,Department,department,false
+UserStep,COMPOSITION_1:N,User,steps,false
+```
+
+### 4. `roles.csv`
+Define Roles to security the entities, views and menu. The roles are assigned from web interface to the user. 
+```csv
+name,code,entity_name,ui_list,ui_detail,create,read,update,delete
+HR Manager,hr-manager,UserStep,true,true,true,true,true,true
+HR Manager,hr-manager,Department,true,true,false,true,false,false
+Employee Role,employee-role,UserStep,true,false,false,true,false,false
+```
+
+---
+
+
 ## Available commands
 
 | Command | What it does |
@@ -187,16 +245,27 @@ jmix-cli migrate <EntityName>
 jmix-cli migrate-all --force
 ```
 
-## Development
+---
+
+## 📊 Live Demonstration & Tutorial Project
+
+To view this engine in action executing an end-to-end automation cycle for a standard corporate agilepm flow, please refer to the fully generated tutorial implementation repository:
+
+👉 **[Jmix Agile Project Management System Tutorial Generated Project](https://github.com/florintanasa/agilepm)**
+
+[!NOTE] Is for my test and is used to develop jmix-cli.
+---
+
+## 🏗️ Development Environment
+
+Optimized to run seamlessly inside ultra-lightweight developer environments like the **Zed Editor** combined with **GitKraken** and a local **Ollama** server running `translategemma:4b`.
 
 ```bash
-# clone and run locally
-git clone https://github.com/florintanasa/jmix-cli.git
-cd jmix-cli
-
-# run directly
-python3 jmix-cli.py --help
+# Ensure the local translation model is active before execution to be more fast in translate
+ollama run translategemma:4b
 ```
+
+---
 
 ## License
 
