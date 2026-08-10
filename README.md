@@ -1,29 +1,125 @@
-# Jmix Lightweight CLI Engine
-#### The code is in a very alpha state, I'm basically learning Python with it (it's my first code in Python) with a lot of help from the AI ​​partner: 
+# Jmix CLI — Relational database application generator for non-programmers
+###### The code is in a beta state, I'm basically learning Python with it (it's my first code in Python) with a lot of help from the AI ​​partner
 ---
-A high-performance, parametric, and agnostic Command Line Interface (CLI) tool designed to automate architecture blueprinting for **Jmix 2.x / Spring Boot** applications. 
 
-This engine eliminates the heavy RAM consumption of traditional IDEs by completely orchestrating Data Models, Liquibase Versioning, FlowUI Views, Dynamic Collections, and Multi-language Localization using local AI models and structured CSV configurations.
+This project is primarily intended for **non-programmers** who need practical tools to work with structured data: **researchers at BRGVSV** (Vegetal Genetic Resources Bank "Mihai Cristea" Suceava), **accountants**, **economists**, **educators**, **teachers**, **students**, and any user who needs to build a functional application over a relational database, without writing Java code manually.
 
-## 🚀 Key Features
+Currently the generator works with **HSQLDB** (file-based database, no separate installation needed), and in the near future **PostgreSQL** will also be supported for larger or network-shared projects.
 
-* **100% Agnostic Architecture**: No hardcoded structures. Driven purely by three metadata configuration files (`traits.csv`, `entities.csv`, `relations.csv`).
-* **System Infiltration**: Automatically injects properties, JPA annotations (`ManyToOne`, `OneToMany`), Jakarta `@NotNull` validations, and methods directly into existing system files (like native Jmix `User.java`) using high-precision textual parsing without corrupting original security configurations.
-* **Universal Composition Support**: Seamlessly wires up `COMPOSITION_1:N` and `COMPOSITION_1:1` relational hierarchies. Modifies the target class via `.rfind()` and generates nested `<dataGrid>` layouts with completely dynamic columns in the parent view.
-* **Deterministic Liquibase Sequencing**: Splits database migrations into base structures (`_01_base`) and relational constraints (`_02_relations`), ensuring strict execution sequencing and preventing referential integrity failures at startup.
-* **Parametric AI Localization**: Automatically queries a local LLM (`translategemma:4b` via Ollama) to translate, separate CamelCase strings, and format application UI properties based on the dynamic locale requested during project initialization.
-  
----
+## What does this tool do?
+
+You fill in a few **CSV** files (Excel tables exported as text) with your data:
+- which entities you need (`entities.csv`)
+- how they are linked together (`relations.csv`)
+- what security rules you want (`roles.csv`)
+- what standard behavior each entity should have (`traits.csv`)
+
+Then, with a single command, the generator automatically creates:
+- Java classes for data (`entity`)
+- databases and migrations (`Liquibase`)
+- web interface for viewing and editing (`FlowUI views`)
+- role-based security and menu
+- messages for Romanian / English and local automatic translations
+
+You no longer need to learn Spring, JPA, Vaadin or Liquibase to have a working application.
+
+## Project structure
+
+```
+jmix-cli/
+├── jmix-cli.py              # entry point, run directly
+├── jmix_cli/                # Python modules
+│   ├── cli/                 # commands, init, dry-run
+│   ├── core/                # project paths, constants, CSV reading
+│   ├── entity/              # entity and relationship generation
+│   ├── i18n/                # messages and local translations
+│   ├── liquibase/           # base and relationship changelogs
+│   ├── migrate/             # incremental migration: add/modify/drop
+│   ├── security/            # Jmix roles
+│   ├── user/                # extensions for the User entity
+│   └── views/               # lists and detail forms
+├── pyproject.toml           # PyPI configuration
+├── README.md
+└── LICENSE
+```
+
+## Installation
+
+### Option 1: quick local installation (without PyPI)
+
+```bash
+# clone the repository
+git clone https://github.com/florintanasa/jmix-cli.git
+cd jmix-cli
+
+# copy the tool to an accessible location
+cp jmix-cli jmix-cli.py -r jmix_cli/ ~/.local/bin/
+
+# test
+jmix-cli --help
+```
+
+After this you can run `jmix-cli` from any directory.
+
+### Option 2: installation via pip / PyPI
+
+```bash
+# install directly from PyPI
+pip install jmix-cli
+
+# verify it works
+jmix-cli --help
+```
+
+If you want to install the latest version before it is published on PyPI, directly from the repository:
+
+```bash
+pip install git+https://github.com/florintanasa/jmix-cli.git
+```
+
+## Usage
+
+### 1. Prepare the CSV files
+
+Place these files in the root of your Jmix project:
+
+- `traits.csv` — what rules each entity has
+- `entities.csv` — the fields of each entity
+- `relations.csv` — the links between entities
+- `roles.csv` — who can see / modify what
+
+### 2. Run the generator
+
+```bash
+# generate everything: entities, database, interface, security, menu
+jmix-cli build-all
+
+# or step by step
+jmix-cli entity-all
+jmix-cli ui-list-all
+jmix-cli ui-detail-all
+jmix-cli security
+```
+
+### 3. Start the application
+
+```bash
+./gradlew bootRun
+```
+
+The application will be available in the browser, usually at `http://localhost:8080`.
+
+
 ## 🚀 Initialize a new clean standard Jmix template
 
 Next command prepare for you a new project using [jmix-ai-template](https://github.com/florintanasa/jmix-ai-template), branche v2.8.2 ( the original repository not exist anymore ~~[jmix-ai-template](https://github.com/jmix-framework/jmix-ai-template)~~ :
 ```bash
-python jmix-cli.py init <project_name> <target_group> [locale]
+jmix-cli init <project_name> <target_group> [locale]
 ```
    
 Example: 
 ```bash
-python jmix-cli.py init onboarding com.company ro
+jmix-cli init onboarding com.company ro
 ```
   
 ---
@@ -52,7 +148,7 @@ UserStep,sortValue,Integer,false,false
 ### 3. `relations.csv`
 Maps structural relationships across entities including standard associations and complex compositions.
 ```csv
-source_entity,relation_type,target_entity,field_name,mandatory
+source_entity,relation_type,target_entity,field_name,mandatory,ownership
 User,N:1,Department,department,false
 UserStep,COMPOSITION_1:N,User,steps,false
 ```
@@ -68,66 +164,96 @@ Employee Role,employee-role,UserStep,true,false,false,true,false,false
 
 ---
 
-## 💻 Usage & CLI Commands
 
-### 1. Initialize a Project Namespace
-Sets up the base package structure, directories, configuration paths, and secondary locales.
+## Available commands
+
+| Command | What it does |
+|---|---|
+| `jmix-cli init <name> <group> [locale]` | Creates a new Jmix project |
+| `jmix-cli entity <EntityName>` | Generates a single entity |
+| `jmix-cli entity-all` | Generates all entities from CSV |
+| `jmix-cli ui-list <EntityName>` | Generates the list for one entity |
+| `jmix-cli ui-list-all` | Generates lists for all entities |
+| `jmix-cli ui-detail <EntityName>` | Generates the detail form |
+| `jmix-cli ui-detail-all` | Generates forms for all entities |
+| `jmix-cli security` | Generates security roles |
+| `jmix-cli migrate <EntityName>` | Incremental migration: new columns, renames, changes |
+| `jmix-cli migrate-all` | Incremental migration for all entities |
+| `jmix-cli build-all` | ALL steps from 1 to 5 |
+| `jmix-cli <command> --dry-run` | Tests generation in a temporary directory, without modifying the project |
+
+Useful options:
+- `--dry-run` — preview in `/tmp`, ideal for learning and experimenting without risks
+- `--force` — used with `migrate` / `migrate-all` to automatically apply all changes, including column drops
+- `--verbose` / `--quiet` — controls how much log is displayed
+
+## Data types accepted in `entities.csv`
+
+- `String`
+- `Integer`
+- `Long`
+- `BigDecimal`
+- `Double`
+- `LocalDate`
+- `Boolean`
+
+Each field can also have constraints:
+- `mandatory = true` → NOT NULL column
+- `unique = true` → unique index in the database
+
+## Relationship types accepted in `relations.csv`
+
+- `N:1` — many-to-one
+- `1:1` — one-to-one
+- `N:N` — many-to-many, with the additional `ownership` column
+- `COMPOSITION_1:N` — parent-child, deleting the parent also deletes the child
+- `COMPOSITION_1:1` — one-to-one composition
+
+For `N:N` relationships, the `ownership` column controls how the UI is generated:
+
+| `ownership` value | UI behavior |
+|---|---|
+| `owning` | The source entity receives a `multiSelectComboBoxPicker` in the detail form; the target entity receives a read-only `dataGrid` |
+| `single-owning` | The source entity receives a `multiSelectComboBoxPicker`; the target entity **receives no interface** for the relationship |
+| `both-owning` | Both sides receive a `dataGrid` with add/remove actions; the `multiSelectComboBoxPicker` is removed |
+| empty / missing | The source entity receives `multiSelectComboBoxPicker`; the target entity receives a read-only `dataGrid` (same as `owning`) |
+
+## What is `--dry-run` and why it is useful
+
+`--dry-run` copies the project into a temporary directory in `/tmp`, runs all commands there, and shows you which files would be modified, without touching the real project.
+
 ```bash
-python3 jmix-cli.py init [ProjectName] [GroupPackage] [OptionalLocale]
-# Example: python3 jmix-cli.py init onboarding com.company ro
+jmix-cli build-all --dry-run
 ```
 
-### 2. Generate Data Model & Database Migrations
-Generates Java entity blueprints, audited traits, relational variables, create labels in messages_en.properties, translate labels in messages_XX.properties and corresponding sequential Liquibase changelogs.  
->[!IMPORTANT]
->
-> Runs entities that do not depend on other entities first, followed by entities that depend on them.
-
+Then you can compare with:
 ```bash
-# Generate single entity + Liquibase changelogs + Ceate labels in messages_xx.properties
-python3 jmix-cli.py entity [EntityName]
-# Example: python3 jmix-cli.py entity UserStep
-# Or
-# Generate ALL entities + Liquibase changelogs + Ceate labels in messages_xx.properties
-python3 jmix-cli.py entity-all
+meld /path/to/project /tmp/jmix-dry-run-....
 ```
 
-### 3. Generate FlowUI Data Views
-Generates production-ready layouts with structural lazy fetchPlans, lookup tables, forms, automatic menu indexing, and dynamic composition grids.
-```bash
-# Generate single List View layout and wire to application menu
-python3 jmix-cli.py ui-list [EntityName]
-# Or
-# Generate ALL list views
-python3 jmix-cli.py ui-list-all
+## What is `migrate` and when to use it
 
-# Generate single Form/Detail View layout and handle sub-composition bindings
-python3 jmix-cli.py ui-detail [EntityName]
-# Or
-# Generate ALL detail views
-python3 jmix-cli.py ui-detail-all
-```
+Once you have a working application, if you modify `entities.csv` or `relations.csv`, `migrate` will:
+- detect new fields and add them to Java + Liquibase
+- detect removed fields and remove them from Java + database
+- detect type, nullability or unique changes
+- detect renames when there is enough similarity between names
+- automatically update the web interface to stay in sync with the data
 
-### 4. Generate Roles
-Roles ensure the security of entities, screens and menus. After generation, roles are assigned to users through the web interface by the admin. Roles basically establish the CRUD actions on entities and screens and menus.
 ```bash
-# Generate Roles defined in roles.csv files
-python3 jmix-cli.py security
-```
-
-### 5. Generate ALL phases
-```bash
-python3 jmix-cli.py build-all
+jmix-cli migrate <EntityName>
+jmix-cli migrate-all --force
 ```
 
 ---
 
 ## 📊 Live Demonstration & Tutorial Project
 
-To view this engine in action executing an end-to-end automation cycle for a standard corporate onboarding flow, please refer to the fully generated tutorial implementation repository:
+To view this engine in action executing an end-to-end automation cycle for a standard corporate agilepm flow, please refer to the fully generated tutorial implementation repository:
 
 👉 **[Jmix Agile Project Management System Tutorial Generated Project](https://github.com/florintanasa/agilepm)**
 
+[!NOTE] Is for my test and is used to develop jmix-cli.
 ---
 
 ## 🏗️ Development Environment
@@ -139,6 +265,8 @@ Optimized to run seamlessly inside ultra-lightweight developer environments like
 ollama run translategemma:4b
 ```
 
-## 📄 To do...
+---
 
-I try to split by modules jmix-cli.py 👉 **[Agile Project Management System - branch _modules_](https://github.com/florintanasa/agilepm/tree/modules)**
+## License
+
+BSD 2-Clause — see the `LICENSE` file.
