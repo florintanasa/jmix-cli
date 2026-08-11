@@ -30,7 +30,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-from jmix_cli.core.project import COMPANY, PROIECT_PATH, PROJECT, project_name
+from jmix_cli.core.project import COMPANY, PROIECT_PATH, PROJECT, company_path, project_name
 from jmix_cli.core.logger import get_logger
 from jmix_cli.exceptions import JmixCliError, ConfigurationError, GenerationError, UserInputError
 from jmix_cli.cli.dry_run import (
