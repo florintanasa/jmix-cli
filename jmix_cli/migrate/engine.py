@@ -662,7 +662,6 @@ def migrate_entity(entity_name: str, mode: str = "prompt") -> None:
     if relations_list:
         relations_list = [rel for rel in relations_list if not _is_relation_field_in_java(entity_name, rel)]
     if relations_list:
-        missing_relation_cols = get_missing_relation_columns(entity_name, db_adapter)
         skip_add_column_fks = {col["name"].upper() for col in missing_relation_cols}
         from jmix_cli.liquibase.relations import gen_liquibase_relations_changelog
         gen_liquibase_relations_changelog(entity_name, relations_list, skip_add_column_fks)
