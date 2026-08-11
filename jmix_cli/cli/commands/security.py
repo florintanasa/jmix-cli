@@ -24,8 +24,15 @@
 # THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 # -
 
+from jmix_cli.core.csv import csv_has_data
+from jmix_cli.core.logger import get_logger
 from jmix_cli.security import gen_jmix_resource_roles_from_csv
+
+logger = get_logger("jmix_cli.cli.commands.security")
 
 
 def run_security() -> None:
+    if not csv_has_data("roles.csv", ["name", "code", "entity_name", "ui_list", "ui_detail", "create", "read", "update", "delete"]):
+        logger.info("Skipping security generation: roles.csv is missing or empty.")
+        return
     gen_jmix_resource_roles_from_csv()

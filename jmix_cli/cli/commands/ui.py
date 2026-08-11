@@ -27,6 +27,8 @@
 import csv
 from pathlib import Path
 
+from jmix_cli.core.logger import get_logger
+
 from jmix_cli.views import (
     gen_list_view_from_csv,
     gen_detail_view_from_csv,
@@ -40,10 +42,16 @@ from jmix_cli.entity.generator import _inject_composition_into_parent
 from jmix_cli.cli.commands.entity import _get_inverse_composition_relations
 from jmix_cli.i18n import update_messages_entity
 from jmix_cli.entity.traits import get_traits_from_csv
+from jmix_cli.core.csv import csv_has_data
 from jmix_cli.core.project import COMPANY, project_name
+
+logger = get_logger("jmix_cli.cli.commands.ui")
 
 
 def generate_all_list_views() -> None:
+    if not csv_has_data("entities.csv", ["entity_name", "field_name", "field_type", "mandatory", "unique"]):
+        logger.info("Skipping list view generation: entities.csv is missing or empty.")
+        return
     ordered_list = get_sorted_entities_by_dependency()
     for ent in ordered_list:
         fields_list = get_entities_from_csv("entities.csv", ent)
@@ -56,6 +64,9 @@ def generate_all_list_views() -> None:
 
 
 def generate_all_detail_views() -> None:
+    if not csv_has_data("entities.csv", ["entity_name", "field_name", "field_type", "mandatory", "unique"]):
+        logger.info("Skipping detail view generation: entities.csv is missing or empty.")
+        return
     ordered_list = get_sorted_entities_by_dependency()
     for ent in ordered_list:
         relations_list = get_relations_from_csv("relations.csv", ent)

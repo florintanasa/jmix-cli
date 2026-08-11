@@ -31,6 +31,24 @@ from pathlib import Path
 from jmix_cli.exceptions import InvalidCsvError
 
 
+def csv_has_data(path: str, required_columns: list[str]) -> bool:
+    """Return True if the CSV exists, has the required columns, and at least one data row."""
+    if not os.path.exists(path):
+        return False
+    with open(path, mode="r", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        if reader.fieldnames is None:
+            return False
+        missing = set(required_columns) - set(reader.fieldnames)
+        if missing:
+            return False
+        try:
+            next(reader)
+            return True
+        except StopIteration:
+            return False
+
+
 def validate_csv_path(csv_path: str, required_columns: list[str]) -> list[dict]:
     if not os.path.exists(csv_path):
         raise InvalidCsvError(csv_path)

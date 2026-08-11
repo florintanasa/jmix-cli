@@ -31,7 +31,7 @@ from typing import Any
 from jmix_cli.core.project import COMPANY, PROIECT_PATH, company_path, project_name
 from jmix_cli.core.files import write_file
 from jmix_cli.core.logger import get_logger
-from jmix_cli.core.csv import validate_csv_path
+from jmix_cli.core.csv import csv_has_data, validate_csv_path
 from jmix_cli.exceptions import UserInputError, ConfigurationError
 from jmix_cli.entity import (
     get_entities_from_csv,
@@ -166,11 +166,18 @@ def generate_single_entity(name: str) -> None:
 
 
 def generate_all_entities() -> None:
+    if not csv_has_data("entities.csv", ["entity_name", "field_name", "field_type", "mandatory", "unique"]):
+        logger.info("Skipping entity generation: entities.csv is missing or empty.")
+        return
     from jmix_cli.cli.dry_run import inject_audit_dependencies, _finalize_composition_relationships, _patch_globals_for_dry_run, _copy_project_to_temp
     inject_audit_dependencies()
     logger.info("[*] Launching ENTITY-ONLY generation for ALL entities...")
     ordered_list = get_sorted_entities_by_dependency()
     logger.info(f"[*] Calculated generation sequence: {ordered_list}")
+    relations_csv_path = Path("relations.csv")
+    relations_available = relations_csv_path.exists() and csv_has_data("relations.csv", ["source_entity", "relation_type", "target_entity", "field_name", "mandatory"])
+    if not relations_available:
+        logger.info("Skipping relations: relations.csv is missing or empty.")
     for ent in ordered_list:
         if ent == "User":
             relations_list = get_relations_from_csv("relations.csv", "User")

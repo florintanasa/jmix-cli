@@ -38,6 +38,7 @@ from pathlib import Path
 from jmix_cli.core.project import COMPANY, PROIECT_PATH, PROJECT, company_path, project_name
 from jmix_cli.core.files import write_file, update_checkbox_required_state_property
 from jmix_cli.core.logger import get_logger
+from jmix_cli.core.csv import csv_has_data
 from jmix_cli.exceptions import JmixCliError, ConfigurationError, GenerationError, UserInputError
 
 logger = get_logger("jmix_cli.cli.dry_run")
@@ -213,36 +214,38 @@ def _handle_error(error: Exception) -> None:
 def inject_audit_dependencies() -> None:
     from jmix_cli.core.project import PROIECT_PATH, company_path, project_name
 
+    if not csv_has_data("traits.csv", ["entity_name", "versioned", "audit_of_creation", "audit_of_modification", "soft_delete"]):
+        logger.info("Skipping audit dependency injection: traits.csv is missing or empty.")
+        return
+
     build_gradle_path = PROIECT_PATH / "build.gradle"
     if build_gradle_path.exists():
-        traits_path = Path("traits.csv")
-        if traits_path.exists():
-            audit_needed = False
-            with traits_path.open(encoding="utf-8") as f:
-                reader = csv.DictReader(f)
-                for row in reader:
-                    if (
-                        row.get("audit_of_creation", "").strip().lower() == "true"
-                        or row.get("audit_of_modification", "").strip().lower() == "true"
-                    ):
-                        audit_needed = True
-                        break
+        audit_needed = False
+        with Path("traits.csv").open(encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                if (
+                    row.get("audit_of_creation", "").strip().lower() == "true"
+                    or row.get("audit_of_modification", "").strip().lower() == "true"
+                ):
+                    audit_needed = True
+                    break
 
-            if audit_needed:
-                content = build_gradle_path.read_text(encoding="utf-8")
-                has_starter = "jmix-audit-starter" in content
-                has_flowui = "jmix-audit-flowui-starter" in content
-                if not has_starter or not has_flowui:
-                    lines_to_add = []
-                    if not has_starter:
-                        lines_to_add.append("    implementation 'io.jmix.audit:jmix-audit-starter' // Automatically configured via Jmix CLI")
-                    if not has_flowui:
-                        lines_to_add.append("    implementation 'io.jmix.audit:jmix-audit-flowui-starter' // Automatically configured via Jmix CLI")
-                    if lines_to_add and "dependencies {" in content:
-                        insertion = "\n".join([""] + lines_to_add) + "\n"
-                        content = content.replace("dependencies {", f"dependencies {{{insertion}", 1)
-                        build_gradle_path.write_text(content, encoding="utf-8")
-                        logger.info("[+] Injected Jmix Audit dependencies into build.gradle")
+        if audit_needed:
+            content = build_gradle_path.read_text(encoding="utf-8")
+            has_starter = "jmix-audit-starter" in content
+            has_flowui = "jmix-audit-flowui-starter" in content
+            if not has_starter or not has_flowui:
+                lines_to_add = []
+                if not has_starter:
+                    lines_to_add.append("    implementation 'io.jmix.audit:jmix-audit-starter' // Automatically configured via Jmix CLI")
+                if not has_flowui:
+                    lines_to_add.append("    implementation 'io.jmix.audit:jmix-audit-flowui-starter' // Automatically configured via Jmix CLI")
+                if lines_to_add and "dependencies {" in content:
+                    insertion = "\n".join([""] + lines_to_add) + "\n"
+                    content = content.replace("dependencies {", f"dependencies {{{insertion}", 1)
+                    build_gradle_path.write_text(content, encoding="utf-8")
+                    logger.info("[+] Injected Jmix Audit dependencies into build.gradle")
 
     changelog_path = PROIECT_PATH / "src" / "main" / "resources" / company_path / project_name / "liquibase" / "changelog.xml"
     if changelog_path.exists():
