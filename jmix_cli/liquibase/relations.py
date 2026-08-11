@@ -218,7 +218,7 @@ def gen_liquibase_relations_changelog(name: str, relations_list: list[dict[str, 
     )
     ensure_dir(target_dir)
     filename = f"{target_dir}/{timestamp}-zz-relations-{name.lower()}.xml"
-    for existing in Path(target_dir).glob(f"*-02-relations-{name.lower()}.xml"):
+    for existing in Path(target_dir).glob(f"*-zz-relations-{name.lower()}.xml"):
         if existing.read_text(encoding="utf-8").strip() == xml_content.strip():
             logger.info(f" -> Relations changelog already exists and is up-to-date: {existing}")
             return
