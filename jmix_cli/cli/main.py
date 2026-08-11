@@ -189,7 +189,7 @@ def main() -> None:
             return
 
         if action == "migrate-all":
-            logger.info("[*] Running incremental DB migrations for all entities...")
+            inject_audit_dependencies()
             mode = "force" if "--force" in sys.argv else "prompt"
             run_migrate_all(mode)
             logger.info("[⚡] PHASE 1.6: Injecting COMPOSITION_1:N relationships into parent entities...")
@@ -200,6 +200,13 @@ def main() -> None:
                 if composition_rels:
                     _inject_composition_into_parent(ent, composition_rels)
             _finalize_composition_relationships()
+            user_relations = get_relations_from_csv("relations.csv", "User")
+            if user_relations:
+                from jmix_cli.liquibase.relations import gen_liquibase_relations_changelog
+                from jmix_cli.user import inject_relations_into_existing_user
+                gen_liquibase_relations_changelog("User", user_relations)
+                inject_relations_into_existing_user("User", user_relations)
+            run_security()
             update_checkbox_required_state_property()
             _finish_dry_run(dry_run_temp_dir, original_dir)
             return

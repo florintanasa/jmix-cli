@@ -628,8 +628,12 @@ def migrate_entity(entity_name: str, mode: str = "prompt") -> None:
     if mode != "dry-run":
         _apply_trait_changes_to_java(entity_name, trait_added_traits, trait_removed_traits)
 
+    relations_list = get_relations_from_csv("relations.csv", entity_name)
+    if relations_list:
+        from jmix_cli.liquibase.relations import gen_liquibase_relations_changelog
+        gen_liquibase_relations_changelog(entity_name, relations_list)
+
     if messages_need_update and mode != "dry-run" and mode != "quiet" and entity_name != "User":
-        relations_list = get_relations_from_csv("relations.csv", entity_name)
         csv_fields = _read_entity_fields(entity_name)
         all_field_names = [f["name"] for f in csv_fields]
         relation_field_names = [rel["field"] for rel in relations_list]
@@ -639,7 +643,8 @@ def migrate_entity(entity_name: str, mode: str = "prompt") -> None:
 
 def migrate_all_entities(mode: str = "prompt") -> None:
     """Run migration for all entities defined in entities.csv."""
-    from jmix_cli.entity import get_sorted_entities_by_dependency
+    from jmix_cli.entity import get_sorted_entities_by_dependency, has_existing_entity_and_changelog
+    from jmix_cli.cli.commands.entity import generate_all_entities
 
     entities = get_sorted_entities_by_dependency()
 
@@ -647,9 +652,19 @@ def migrate_all_entities(mode: str = "prompt") -> None:
         logger.info("[migrate] No entities found in entities.csv")
         return
 
+    missing = [entity for entity in entities if entity != "User" and not has_existing_entity_and_changelog(entity)]
+
+    if missing:
+        logger.info(f"[migrate] {len(missing)} entity(ies) missing. Running full generation...")
+        generate_all_entities()
+        return
+
     logger.info(f"[*] Running incremental migration for {len(entities)} entities...")
 
     for entity in entities:
+        if entity == "User":
+            logger.info(f"\n   → Skipping system User entity (handled by entity/ui commands)")
+            continue
         logger.info(f"\n   → Migrating: {entity}")
         migrate_entity(entity, mode)
 
