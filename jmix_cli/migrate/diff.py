@@ -539,6 +539,94 @@ def detect_dropped_columns(entity_name: str, db_adapter: DatabaseAdapter) -> lis
     return dropped
 
 
+def detect_trait_changes(entity_name: str) -> dict[str, Any]:
+    """Detect changes in entity traits (versioned, audit, soft_delete).
+
+    Compares the current Java entity state with the desired state from
+    traits.csv. Returns a dict with:
+      - added_traits: dict of trait_name -> True for traits newly enabled
+      - removed_traits: dict of trait_name -> True for traits newly disabled
+      - added_columns: list of column dicts to add to the database
+      - removed_columns: list of column names to drop from the database
+
+    Each trait maps to specific Java fields and database columns:
+      versioned         -> VERSION (INT, @Version)
+      audit_of_creation -> CREATED_BY (VARCHAR), CREATED_DATE (timestamp)
+      audit_of_modification -> LAST_MODIFIED_BY (VARCHAR), LAST_MODIFIED_DATE (timestamp)
+      soft_delete       -> DELETED_BY (VARCHAR), DELETED_DATE (timestamp)
+    """
+    csv_traits = _read_entity_traits(entity_name)
+
+    entity_path = (
+        PROIECT_PATH
+        / "src" / "main" / "java" / company_path / project_name / "entity"
+        / f"{entity_name}.java"
+    )
+    current_traits: dict[str, bool] = {
+        "versioned": False,
+        "audit_of_creation": False,
+        "audit_of_modification": False,
+        "soft_delete": False,
+    }
+    if entity_path.exists():
+        content = entity_path.read_text(encoding="utf-8")
+        # Detect versioned via @Version annotation
+        if re.search(r'@Version', content):
+            current_traits["versioned"] = True
+        # Detect audit fields by presence of the field declarations
+        if re.search(r'private\s+\S+\s+createdBy\s*;', content):
+            current_traits["audit_of_creation"] = True
+        if re.search(r'private\s+\S+\s+lastModifiedBy\s*;', content):
+            current_traits["audit_of_modification"] = True
+        if re.search(r'private\s+\S+\s+deletedBy\s*;', content):
+            current_traits["soft_delete"] = True
+
+    added_traits: dict[str, bool] = {}
+    removed_traits: dict[str, bool] = {}
+    for trait_name in ("versioned", "audit_of_creation", "audit_of_modification", "soft_delete"):
+        csv_val = csv_traits.get(trait_name, False)
+        cur_val = current_traits.get(trait_name, False)
+        if csv_val and not cur_val:
+            added_traits[trait_name] = True
+        elif not csv_val and cur_val:
+            removed_traits[trait_name] = True
+
+    # Map traits to database columns (using Java type names so map_type_to_sql can convert)
+    trait_column_map = {
+        "versioned": [
+            {"name": "VERSION", "type": "int", "mandatory": True, "unique": False},
+        ],
+        "audit_of_creation": [
+            {"name": "CREATED_BY", "type": "string", "mandatory": False, "unique": False},
+            {"name": "CREATED_DATE", "type": "localdatetime", "mandatory": False, "unique": False},
+        ],
+        "audit_of_modification": [
+            {"name": "LAST_MODIFIED_BY", "type": "string", "mandatory": False, "unique": False},
+            {"name": "LAST_MODIFIED_DATE", "type": "localdatetime", "mandatory": False, "unique": False},
+        ],
+        "soft_delete": [
+            {"name": "DELETED_BY", "type": "string", "mandatory": False, "unique": False},
+            {"name": "DELETED_DATE", "type": "localdatetime", "mandatory": False, "unique": False},
+        ],
+    }
+
+    added_columns: list[dict[str, Any]] = []
+    for trait_name in added_traits:
+        added_columns.extend(trait_column_map.get(trait_name, []))
+
+    removed_columns: list[str] = []
+    for trait_name in removed_traits:
+        for col in trait_column_map.get(trait_name, []):
+            removed_columns.append(col["name"])
+
+    return {
+        "added_traits": added_traits,
+        "removed_traits": removed_traits,
+        "added_columns": added_columns,
+        "removed_columns": removed_columns,
+    }
+
+
 def _get_already_dropped_columns(table_name: str) -> set[str]:
     """Get columns that have already been dropped by previous drop changelogs.
 

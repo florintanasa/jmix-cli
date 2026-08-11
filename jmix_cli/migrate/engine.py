@@ -44,6 +44,7 @@ from jmix_cli.migrate.diff import (
     detect_field_metadata_changes,
     detect_missing_columns,
     detect_relation_metadata_changes,
+    detect_trait_changes,
     get_missing_relation_columns,
     get_table_name,
 )
@@ -144,6 +145,173 @@ def _apply_relation_field_renames(entity_name: str) -> list[str]:
     return renamed
 
 
+# Mapping of trait names to their Java field declarations and imports.
+# Each entry contains:
+#   - fields: list of (field_name, field_type, annotation_block) tuples
+#   - imports: set of import statements needed
+_TRAIT_FIELD_MAP = {
+    "versioned": {
+        "fields": [
+            (
+                "version",
+                "Integer",
+                "    @Version\n    @Column(name = \"VERSION\", nullable = false)\n",
+            ),
+        ],
+        "imports": {
+            "import jakarta.persistence.Version;",
+            "import jakarta.persistence.Column;",
+        },
+    },
+    "audit_of_creation": {
+        "fields": [
+            ("createdBy", "String", "    @Column(name = \"CREATED_BY\")\n"),
+            (
+                "createdDate",
+                "OffsetDateTime",
+                "    @Column(name = \"CREATED_DATE\")\n",
+            ),
+        ],
+        "imports": {
+            "import java.time.OffsetDateTime;",
+            "import jakarta.persistence.Column;",
+        },
+    },
+    "audit_of_modification": {
+        "fields": [
+            (
+                "lastModifiedBy",
+                "String",
+                "    @Column(name = \"LAST_MODIFIED_BY\")\n",
+            ),
+            (
+                "lastModifiedDate",
+                "OffsetDateTime",
+                "    @Column(name = \"LAST_MODIFIED_DATE\")\n",
+            ),
+        ],
+        "imports": {
+            "import java.time.OffsetDateTime;",
+            "import jakarta.persistence.Column;",
+        },
+    },
+    "soft_delete": {
+        "fields": [
+            ("deletedBy", "String", "    @Column(name = \"DELETED_BY\")\n"),
+            (
+                "deletedDate",
+                "OffsetDateTime",
+                "    @Column(name = \"DELETED_DATE\")\n",
+            ),
+        ],
+        "imports": {
+            "import java.time.OffsetDateTime;",
+            "import jakarta.persistence.Column;",
+        },
+    },
+}
+
+
+def _apply_trait_changes_to_java(
+    entity_name: str,
+    added_traits: dict[str, bool],
+    removed_traits: dict[str, bool],
+) -> None:
+    """Inject or remove trait-related fields in the Java entity file.
+
+    For each newly enabled trait, injects the corresponding fields and imports.
+    For each newly disabled trait, removes the corresponding fields, getters,
+    setters, and the @Version annotation if applicable.
+    """
+    entity_path = (
+        PROIECT_PATH
+        / "src" / "main" / "java" / company_path / project_name / "entity"
+        / f"{entity_name}.java"
+    )
+    if not entity_path.exists():
+        return
+
+    content = entity_path.read_text(encoding="utf-8")
+
+    # Handle added traits: inject fields and imports
+    for trait_name in added_traits:
+        trait_info = _TRAIT_FIELD_MAP.get(trait_name)
+        if not trait_info:
+            continue
+
+        for imp in trait_info["imports"]:
+            if imp not in content:
+                content = content.replace(
+                    "import java.util.UUID;",
+                    f"import java.util.UUID;\n{imp}",
+                )
+
+        for field_name, field_type, anno_block in trait_info["fields"]:
+            if f"private {field_type} {field_name};" in content:
+                continue
+
+            field_decl = f"{anno_block}    private {field_type} {field_name};\n\n"
+            caps = field_name[0].upper() + field_name[1:]
+            getter = f"    public {field_type} get{caps}() {{\n        return {field_name};\n    }}\n\n"
+            setter = f"    public void set{caps}({field_type} {field_name}) {{\n        this.{field_name} = {field_name};\n    }}\n\n"
+
+            if "    public UUID getId()" in content:
+                content = content.replace(
+                    "    public UUID getId()",
+                    f"{field_decl}    public UUID getId()",
+                )
+
+            last_brace = content.rfind("}")
+            if last_brace != -1:
+                content = (
+                    content[:last_brace]
+                    + getter
+                    + setter
+                    + content[last_brace:]
+                )
+
+    # Handle removed traits: remove fields, getters, setters, and annotations
+    for trait_name in removed_traits:
+        trait_info = _TRAIT_FIELD_MAP.get(trait_name)
+        if not trait_info:
+            continue
+
+        for field_name, field_type, anno_block in trait_info["fields"]:
+            caps = field_name[0].upper() + field_name[1:]
+
+            # Remove getter and setter
+            getter = f"    public {field_type} get{caps}() {{\n        return {field_name};\n    }}\n\n"
+            setter = f"    public void set{caps}({field_type} {field_name}) {{\n        this.{field_name} = {field_name};\n    }}\n\n"
+            content = content.replace(getter, "")
+            content = content.replace(setter, "")
+
+            # Remove field declaration and its preceding annotations
+            lines = content.splitlines()
+            new_lines = []
+            i = 0
+            while i < len(lines):
+                line = lines[i]
+                stripped = line.strip()
+                if stripped.startswith("private ") and f" {field_name};" in stripped:
+                    # Remove preceding annotation lines
+                    while new_lines and new_lines[-1].strip().startswith("@"):
+                        new_lines.pop()
+                    # Skip the field declaration line itself
+                    i += 1
+                    continue
+                new_lines.append(line)
+                i += 1
+            content = "\n".join(new_lines)
+
+        # Special handling for versioned: remove @Version annotation
+        if trait_name == "versioned":
+            content = content.replace("    @Version\n", "")
+
+    entity_path.write_text(content, encoding="utf-8")
+    if added_traits or removed_traits:
+        logger.info(f"✅ Applied trait changes to {entity_name}.java")
+
+
 def migrate_entity(entity_name: str, mode: str = "prompt") -> None:
     """Generate incremental Liquibase migrations for an entity.
 
@@ -159,6 +327,16 @@ def migrate_entity(entity_name: str, mode: str = "prompt") -> None:
     relation_renames = _apply_relation_field_renames(entity_name)
 
     added_fields, dropped_from_csv, renamed_fields = detect_changed_fields(entity_name)
+
+    # Detect trait changes (versioned, audit, soft_delete) from traits.csv vs Java
+    trait_changes = detect_trait_changes(entity_name)
+    trait_added_columns = trait_changes.get("added_columns", [])
+    trait_removed_columns = trait_changes.get("removed_columns", [])
+    trait_added_traits = trait_changes.get("added_traits", {})
+    trait_removed_traits = trait_changes.get("removed_traits", {})
+
+    if trait_added_columns or trait_removed_columns or trait_added_traits or trait_removed_traits:
+        messages_need_update = True
 
     if renamed_fields or added_fields or relation_renames:
         messages_need_update = True
@@ -266,8 +444,10 @@ def migrate_entity(entity_name: str, mode: str = "prompt") -> None:
 
     missing_relation_cols = get_missing_relation_columns(entity_name, db_adapter)
 
-    if missing_fields or added_field_dicts or missing_relation_cols:
-        new_fields = missing_fields + added_field_dicts + missing_relation_cols
+    # Include trait-added columns in the add-field changelog
+    all_add_columns = added_field_dicts + missing_relation_cols + trait_added_columns
+    if missing_fields or all_add_columns:
+        new_fields = missing_fields + all_add_columns
         seen_names: set[str] = set()
         new_fields = [
             f for f in new_fields
@@ -383,9 +563,15 @@ def migrate_entity(entity_name: str, mode: str = "prompt") -> None:
         and name.upper() not in user_standard_cols
         and name not in renamed_old_names
     ]
-    if all_dropped:
+
+    # Trait-removed columns are handled separately in Java by _apply_trait_changes_to_java,
+    # but they still need to be dropped from the database.
+    trait_dropped = [name for name in trait_removed_columns if name.upper() not in user_standard_cols]
+    all_dropped_for_changelog = all_dropped + trait_dropped
+
+    if all_dropped_for_changelog:
         if mode == "prompt":
-            response = input(f"⚠️  Warning: Columns {all_dropped} will be DROPPED from {table_name} (data loss!). Continue? [y/N]: ")
+            response = input(f"⚠️  Warning: Columns {all_dropped_for_changelog} will be DROPPED from {table_name} (data loss!). Continue? [y/N]: ")
             if response.lower() != "y":
                 logger.info("Skipped dropping columns.")
                 return
@@ -394,7 +580,7 @@ def migrate_entity(entity_name: str, mode: str = "prompt") -> None:
             _remove_fields_from_java(entity_name, [name.lower() for name in all_dropped])
 
         if mode != "dry-run":
-            content = gen_drop_column_changelog(entity_name, all_dropped)
+            content = gen_drop_column_changelog(entity_name, all_dropped_for_changelog)
             timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
             target_dir = (
                 PROIECT_PATH
@@ -411,9 +597,13 @@ def migrate_entity(entity_name: str, mode: str = "prompt") -> None:
             ensure_dir(str(target_dir))
             filename = target_dir / f"{timestamp}-alter-{table_name}-dropField.xml"
 
-            logger.info(f"Generating incremental migration for {entity_name}: drop columns {all_dropped}")
+            logger.info(f"Generating incremental migration for {entity_name}: drop columns {all_dropped_for_changelog}")
             write_file(filename, content)
             logger.info(f"⚠️ Created DROP changelog (data will be lost!): {filename}")
+
+    # Apply trait changes to Java entity (add/remove audit/version fields)
+    if mode != "dry-run":
+        _apply_trait_changes_to_java(entity_name, trait_added_traits, trait_removed_traits)
 
     if messages_need_update and mode != "dry-run" and mode != "quiet" and entity_name != "User":
         relations_list = get_relations_from_csv("relations.csv", entity_name)
