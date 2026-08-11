@@ -61,13 +61,32 @@ jmix-cli --help
 
 After this you can run `jmix-cli` from any directory.
 
-### Option 2: installation via pip / PyPI
+### Option 2: installation via pip / PyPI 
 
 ```bash
 # install directly from PyPI
 pip install jmix-cli
 
 # verify it works
+jmix-cli --help
+```
+
+If your Linux accept only "external manage" (PEP 668), like my BRGV-OS, do the next for test or to install in virtual environment:
+
+```bash
+# 1. Create temp test directory
+mkdir ~/test-jmix && cd ~/test-jmix
+
+# 2. Ceeate virtual enviroment
+python3 -m venv test_env
+
+# 3. Active virtual enviroment
+source test_env/bin/activate
+
+# 4. Install jmix-cli
+pip install jmix-cli
+
+# 5. Test
 jmix-cli --help
 ```
 
@@ -252,8 +271,10 @@ jmix-cli migrate-all --force
 To view this engine in action executing an end-to-end automation cycle for a standard corporate agilepm flow, please refer to the fully generated tutorial implementation repository:
 
 👉 **[Jmix Agile Project Management System Tutorial Generated Project](https://github.com/florintanasa/agilepm)**
+  
+> [!NOTE]  
+> Is for test and is used when I work to develop jmix-cli.
 
-[!NOTE] Is for my test and is used to develop jmix-cli.
 ---
 
 ## 🏗️ Development Environment
