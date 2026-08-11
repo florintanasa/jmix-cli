@@ -335,6 +335,36 @@ def _apply_trait_changes_to_java(
         logger.info(f"✅ Applied trait changes to {entity_name}.java")
 
 
+def _is_relation_field_in_java(entity_name: str, relation: dict[str, Any]) -> bool:
+    """Return True if the relation FK field already exists in the Java entity."""
+    entity_path = (
+        PROIECT_PATH
+        / "src"
+        / "main"
+        / "java"
+        / company_path
+        / project_name
+        / "entity"
+        / f"{entity_name}.java"
+    )
+    if not entity_path.exists():
+        return False
+
+    content = entity_path.read_text(encoding="utf-8")
+    rel_type = relation.get("type")
+    if rel_type in ("N:1", "1:1", "COMPOSITION_1:1"):
+        field_name = relation.get("field", "")
+        fk_name = f"{field_name.upper()}_ID" if field_name else ""
+        if not fk_name:
+            return False
+        return f"private UUID {fk_name.lower()};" in content or f"private UUID {field_name.lower()};" in content
+
+    if rel_type == "N:N":
+        return False
+
+    return False
+
+
 def migrate_entity(entity_name: str, mode: str = "prompt") -> None:
     """Generate incremental Liquibase migrations for an entity.
 
@@ -502,6 +532,9 @@ def migrate_entity(entity_name: str, mode: str = "prompt") -> None:
         else:
             logger.info(f"[dry-run] Would create: {filename}")
 
+    if missing_relation_cols and mode != "dry-run":
+        inject_new_fields_into_existing_entity(entity_name, missing_relation_cols)
+
     if renamed_fields:
         rename_content = gen_rename_column_changelog(entity_name, renamed_fields)
         if rename_content:
@@ -630,8 +663,12 @@ def migrate_entity(entity_name: str, mode: str = "prompt") -> None:
 
     relations_list = get_relations_from_csv("relations.csv", entity_name)
     if relations_list:
+        relations_list = [rel for rel in relations_list if not _is_relation_field_in_java(entity_name, rel)]
+    if relations_list:
+        missing_relation_cols = get_missing_relation_columns(entity_name, db_adapter)
+        skip_add_column_fks = {col["name"].upper() for col in missing_relation_cols}
         from jmix_cli.liquibase.relations import gen_liquibase_relations_changelog
-        gen_liquibase_relations_changelog(entity_name, relations_list)
+        gen_liquibase_relations_changelog(entity_name, relations_list, skip_add_column_fks)
 
     if messages_need_update and mode != "dry-run" and mode != "quiet" and entity_name != "User":
         csv_fields = _read_entity_fields(entity_name)

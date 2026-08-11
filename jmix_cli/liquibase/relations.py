@@ -37,7 +37,29 @@ from jmix_cli.liquibase.base import _stable_changeset_id
 logger = get_logger("jmix_cli.liquibase")
 
 
-def gen_liquibase_relations_changelog(name: str, relations_list: list[dict[str, Any]]) -> None:
+def _column_already_exists(entity_name: str, column_name: str) -> bool:
+    entity_path = (
+        PROIECT_PATH
+        / "src"
+        / "main"
+        / "java"
+        / company_path
+        / project_name
+        / "entity"
+        / f"{entity_name}.java"
+    )
+    if not entity_path.exists():
+        return False
+    content = entity_path.read_text(encoding="utf-8")
+    lowered = content.lower()
+    column_lower = column_name.lower()
+    return (
+        f"private uuid {column_lower};" in lowered
+        or f"@joincolumn(name = \"{column_lower}\"" in lowered
+    )
+
+
+def gen_liquibase_relations_changelog(name: str, relations_list: list[dict[str, Any]], skip_add_column_fks: set[str] | None = None) -> None:
     if not relations_list:
         return
 
@@ -57,8 +79,21 @@ def gen_liquibase_relations_changelog(name: str, relations_list: list[dict[str, 
             col_name = f"{f_name}_ID"
             fk_name = f"FK_{src_table}_ON_{f_name}"
             nullable_val = "false" if rel["mandatory"] else "true"
-            change_sets.append(
-                f"""    <changeSet id="{_stable_changeset_id(name, f"add-fk-{rel['field'].lower()}")}" author="{project_name}">
+            column_exists = _column_already_exists(name, col_name)
+            skip_add_column = (skip_add_column_fks or set()).intersection({col_name, f_name})
+            if column_exists or skip_add_column:
+                change_sets.append(
+                    f"""    <changeSet id="{_stable_changeset_id(name, f"add-fk-{rel['field'].lower()}")}" author="{project_name}">
+        <addForeignKeyConstraint baseTableName="{src_table}"
+                                  baseColumnNames="{col_name}"
+                                  constraintName="{fk_name}"
+                                  referencedTableName="{tgt_table}"
+                                  referencedColumnNames="ID"/>
+    </changeSet>"""
+                )
+            else:
+                change_sets.append(
+                    f"""    <changeSet id="{_stable_changeset_id(name, f"add-fk-{rel['field'].lower()}")}" author="{project_name}">
         <addColumn tableName="{src_table}">
             <column name="{col_name}" type="UUID">
                 <constraints nullable="{nullable_val}"/>
@@ -70,16 +105,30 @@ def gen_liquibase_relations_changelog(name: str, relations_list: list[dict[str, 
                                   referencedTableName="{tgt_table}"
                                   referencedColumnNames="ID"/>
     </changeSet>"""
-            )
+                )
         elif rel["type"] == "1:1" or rel["type"] == "COMPOSITION_1:1":
             f_name = rel["field"].upper()
             col_name = f"{f_name}_ID"
             fk_name = f"FK_{src_table}_ON_{f_name}"
             nullable_val = "false" if rel["mandatory"] else "true"
             stable_change_id = _stable_changeset_id(name, f"add-11-{rel['field'].lower()}")
+            column_exists = _column_already_exists(name, col_name)
+            skip_add_column = (skip_add_column_fks or set()).intersection({col_name, f_name})
             if rel["type"] == "COMPOSITION_1:1":
-                change_sets.append(
-                    f"""    <changeSet id="{stable_change_id}" author="{project_name}">
+                if column_exists or skip_add_column:
+                    change_sets.append(
+                        f"""    <changeSet id="{stable_change_id}" author="{project_name}">
+        <createIndex tableName="{src_table}" indexName="IDX_{src_table}_UNQ_{col_name}" unique="true">
+            <column name="{col_name}"/>
+        </createIndex>
+        <addForeignKeyConstraint baseTableName="{src_table}" baseColumnNames="{col_name}"
+                                  constraintName="{fk_name}"
+                                  referencedTableName="{tgt_table}" referencedColumnNames="ID"/>
+    </changeSet>"""
+                    )
+                else:
+                    change_sets.append(
+                        f"""    <changeSet id="{stable_change_id}" author="{project_name}">
         <addColumn tableName="{src_table}">
             <column name="{col_name}" type="UUID">
                 <constraints nullable="{nullable_val}"/>
@@ -92,10 +141,22 @@ def gen_liquibase_relations_changelog(name: str, relations_list: list[dict[str, 
                                   constraintName="{fk_name}"
                                   referencedTableName="{tgt_table}" referencedColumnNames="ID"/>
     </changeSet>"""
-                )
+                    )
             else:
-                change_sets.append(
-                    f"""    <changeSet id="{stable_change_id}" author="{project_name}">
+                if column_exists or skip_add_column:
+                    change_sets.append(
+                        f"""    <changeSet id="{stable_change_id}" author="{project_name}">
+        <createIndex tableName="{src_table}" indexName="IDX_{src_table}_UNQ_{col_name}" unique="true">
+            <column name="{col_name}"/>
+        </createIndex>
+        <addForeignKeyConstraint baseTableName="{src_table}" baseColumnNames="{col_name}"
+                                  constraintName="{fk_name}"
+                                  referencedTableName="{tgt_table}" referencedColumnNames="ID"/>
+    </changeSet>"""
+                    )
+                else:
+                    change_sets.append(
+                        f"""    <changeSet id="{stable_change_id}" author="{project_name}">
         <addColumn tableName="{src_table}">
             <column name="{col_name}" type="UUID">
                 <constraints nullable="{nullable_val}"/>
@@ -108,7 +169,7 @@ def gen_liquibase_relations_changelog(name: str, relations_list: list[dict[str, 
                                   constraintName="{fk_name}"
                                   referencedTableName="{tgt_table}" referencedColumnNames="ID"/>
     </changeSet>"""
-                )
+                    )
         elif rel["type"] == "N:N":
             join_table = f"{src_table_for_join}_{tgt_table}_LINK"
             src_fk = f"{src_table_for_join}_ID"
@@ -156,7 +217,7 @@ def gen_liquibase_relations_changelog(name: str, relations_list: list[dict[str, 
         + f"/src/main/resources/{company_path}/{project_name}/liquibase/changelog/{current_year}/{current_month}"
     )
     ensure_dir(target_dir)
-    filename = f"{target_dir}/{timestamp}-02-relations-{name.lower()}.xml"
+    filename = f"{target_dir}/{timestamp}-zz-relations-{name.lower()}.xml"
     for existing in Path(target_dir).glob(f"*-02-relations-{name.lower()}.xml"):
         if existing.read_text(encoding="utf-8").strip() == xml_content.strip():
             logger.info(f" -> Relations changelog already exists and is up-to-date: {existing}")
