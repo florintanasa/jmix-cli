@@ -71,7 +71,7 @@ pip install jmix-cli
 jmix-cli --help
 ```
 
-If your Linux accept only "external manage" (PEP 668), like my BRGV-OS, do the next for test or to install in virtual environment:
+If your Linux system only supports "external management" (PEP 668), like my BRGV-OS, follow the steps below to test or install in a virtual environment:
 
 ```bash
 # 1. Create temp test directory
