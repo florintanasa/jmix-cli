@@ -32,9 +32,9 @@ from jmix_cli.core.csv import validate_csv_path
 
 def get_traits_from_csv(csv_path: str, target_entity_name: str) -> dict[str, str]:
     traits = {
-        "versioned": True,
-        "audit_of_creation": True,
-        "audit_of_modification": True,
+        "versioned": False,
+        "audit_of_creation": False,
+        "audit_of_modification": False,
         "soft_delete": False,
     }
     csv_file = Path(csv_path)
