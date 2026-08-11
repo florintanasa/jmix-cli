@@ -155,24 +155,30 @@ _TRAIT_FIELD_MAP = {
             (
                 "version",
                 "Integer",
-                "    @Version\n    @Column(name = \"VERSION\", nullable = false)\n",
+                "    @Column(name = \"VERSION\", nullable = false)\n    @Version\n",
             ),
         ],
         "imports": {
-            "import jakarta.persistence.Version;",
             "import jakarta.persistence.Column;",
+            "import jakarta.persistence.Version;",
         },
     },
     "audit_of_creation": {
         "fields": [
-            ("createdBy", "String", "    @Column(name = \"CREATED_BY\")\n"),
+            (
+                "createdBy",
+                "String",
+                "    @CreatedBy\n    @Column(name = \"CREATED_BY\")\n",
+            ),
             (
                 "createdDate",
                 "OffsetDateTime",
-                "    @Column(name = \"CREATED_DATE\")\n",
+                "    @CreatedDate\n    @Column(name = \"CREATED_DATE\")\n",
             ),
         ],
         "imports": {
+            "import org.springframework.data.annotation.CreatedBy;",
+            "import org.springframework.data.annotation.CreatedDate;",
             "import java.time.OffsetDateTime;",
             "import jakarta.persistence.Column;",
         },
@@ -182,29 +188,37 @@ _TRAIT_FIELD_MAP = {
             (
                 "lastModifiedBy",
                 "String",
-                "    @Column(name = \"LAST_MODIFIED_BY\")\n",
+                "    @LastModifiedBy\n    @Column(name = \"LAST_MODIFIED_BY\")\n",
             ),
             (
                 "lastModifiedDate",
                 "OffsetDateTime",
-                "    @Column(name = \"LAST_MODIFIED_DATE\")\n",
+                "    @LastModifiedDate\n    @Column(name = \"LAST_MODIFIED_DATE\")\n",
             ),
         ],
         "imports": {
+            "import org.springframework.data.annotation.LastModifiedBy;",
+            "import org.springframework.data.annotation.LastModifiedDate;",
             "import java.time.OffsetDateTime;",
             "import jakarta.persistence.Column;",
         },
     },
     "soft_delete": {
         "fields": [
-            ("deletedBy", "String", "    @Column(name = \"DELETED_BY\")\n"),
+            (
+                "deletedBy",
+                "String",
+                "    @DeletedBy\n    @Column(name = \"DELETED_BY\")\n",
+            ),
             (
                 "deletedDate",
                 "OffsetDateTime",
-                "    @Column(name = \"DELETED_DATE\")\n",
+                "    @DeletedDate\n    @Column(name = \"DELETED_DATE\")\n",
             ),
         ],
         "imports": {
+            "import io.jmix.core.annotation.DeletedBy;",
+            "import io.jmix.core.annotation.DeletedDate;",
             "import java.time.OffsetDateTime;",
             "import jakarta.persistence.Column;",
         },
@@ -239,12 +253,21 @@ def _apply_trait_changes_to_java(
         if not trait_info:
             continue
 
+        # Add missing imports after the last existing import line
         for imp in trait_info["imports"]:
             if imp not in content:
-                content = content.replace(
-                    "import java.util.UUID;",
-                    f"import java.util.UUID;\n{imp}",
-                )
+                if "import java.util.UUID;" in content:
+                    content = content.replace(
+                        "import java.util.UUID;",
+                        f"import java.util.UUID;\n{imp}",
+                    )
+                elif "import " in content:
+                    last_import_idx = content.rfind("import ")
+                    next_newline = content.find("\n", last_import_idx)
+                    insert_point = next_newline + 1 if next_newline != -1 else len(content)
+                    content = content[:insert_point] + imp + "\n" + content[insert_point:]
+                else:
+                    content = imp + "\n" + content
 
         for field_name, field_type, anno_block in trait_info["fields"]:
             if f"private {field_type} {field_name};" in content:
