@@ -2,7 +2,7 @@
 ###### The code is in a beta state, I'm basically learning Python with it (it's my first code in Python) with a lot of help from the AI ​​partner
 ---
 
-This project is primarily intended for **non-programmers** who need practical tools to work with structured data: **researchers at BRGVSV** (Vegetal Genetic Resources Bank "Mihai Cristea" Suceava), **accountants**, **economists**, **educators**, **teachers**, **students**, and any user who needs to build a functional application over a relational database, without writing Java code manually.
+This project is primarily intended for **non-programmers** who need practical tools to work with structured data: **researchers at BRGVSV, Gene Bank from Romania** (Banca de Resurse Genetice Vegetale "Mihai Cristea" Suceava, România), **accountants**, **economists**, **educators**, **teachers**, **students**, and any user who needs to build a functional application over a relational database, without writing Java code manually.
 
 Currently the generator works with **HSQLDB** (file-based database, no separate installation needed), and in the near future **PostgreSQL** will also be supported for larger or network-shared projects.
 
