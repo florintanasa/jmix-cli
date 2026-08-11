@@ -532,9 +532,6 @@ def migrate_entity(entity_name: str, mode: str = "prompt") -> None:
         else:
             logger.info(f"[dry-run] Would create: {filename}")
 
-    if missing_relation_cols and mode != "dry-run":
-        inject_new_fields_into_existing_entity(entity_name, missing_relation_cols)
-
     if renamed_fields:
         rename_content = gen_rename_column_changelog(entity_name, renamed_fields)
         if rename_content:

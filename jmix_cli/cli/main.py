@@ -200,6 +200,11 @@ def main() -> None:
                 if composition_rels:
                     _inject_composition_into_parent(ent, composition_rels)
             _finalize_composition_relationships()
+            for ent in ordered_list:
+                relations_list = get_relations_from_csv("relations.csv", ent)
+                if relations_list:
+                    from jmix_cli.entity.relations.inject import inject_relations_into_existing_entity
+                    inject_relations_into_existing_entity(ent, relations_list)
             user_relations = get_relations_from_csv("relations.csv", "User")
             if user_relations:
                 from jmix_cli.liquibase.relations import gen_liquibase_relations_changelog
