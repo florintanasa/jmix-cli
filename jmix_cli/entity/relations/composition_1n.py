@@ -31,6 +31,9 @@ from pathlib import Path
 from jmix_cli.core.files import write_file
 from jmix_cli.core.java import inject_import_if_missing
 from jmix_cli.core.project import COMPANY, PROIECT_PATH, company_path, project_name
+from jmix_cli.core.logger import get_logger
+
+logger = get_logger("jmix_cli.entity")
 
 
 def inject_composition_1n(name: str, rel: dict[str, str]) -> None:
@@ -75,8 +78,38 @@ def inject_composition_1n(name: str, rel: dict[str, str]) -> None:
     col_name = f"{mapped_by_prop.upper()}_ID"
     try:
         from jmix_cli.migrate import get_existing_columns_from_changelogs
+        from jmix_cli.migrate.changelog import gen_add_column_changelog
+        from jmix_cli.migrate.diff import get_table_name
+        from jmix_cli.core.files import ensure_dir
         existing_cols = get_existing_columns_from_changelogs(src_table)
         if col_name not in existing_cols:
+            # Generate the addColumn changelog BEFORE the FK changelog.
+            # The Java @ManyToOne @JoinColumn was just injected above, so
+            # _column_already_exists() inside gen_liquibase_relations_changelog
+            # would see the annotation and produce FK-only — crashing Liquibase
+            # because the DB column doesn't exist yet.  Instead we emit a
+            # separate addColumn file (comes first alphabetically: "alter-…"
+            # < "zz-relations-…") and pass skip_add_column_fks so the
+            # relations changelog is also FK-only and stays idempotent.
+            missing_col = [{
+                "name": col_name,
+                "type": "UUID",
+                "mandatory": rel.get("mandatory", False),
+                "unique": False,
+            }]
+            add_content = gen_add_column_changelog(src_class, missing_col)
+            table_name = get_table_name(src_class)
+            timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+            target_dir = (
+                PROIECT_PATH / "src" / "main" / "resources"
+                / company_path / project_name / "liquibase" / "changelog"
+                / datetime.now().strftime("%Y") / datetime.now().strftime("%m")
+            )
+            ensure_dir(str(target_dir))
+            add_filename = target_dir / f"{timestamp}-alter-{table_name}-addField.xml"
+            write_file(add_filename, add_content)
+            logger.info(f"✨ Created incremental changelog: {add_filename}")
+
             from jmix_cli.liquibase import gen_liquibase_relations_changelog
             synthetic_rel = [{
                 "type": "N:1",
@@ -85,7 +118,7 @@ def inject_composition_1n(name: str, rel: dict[str, str]) -> None:
                 "mandatory": rel.get("mandatory", False),
                 "ownership": "",
             }]
-            gen_liquibase_relations_changelog(src_class, synthetic_rel)
+            gen_liquibase_relations_changelog(src_class, synthetic_rel, skip_add_column_fks={col_name})
     except ImportError:
         pass
 
