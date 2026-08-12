@@ -28,3 +28,7 @@ tools:
             - git commit *
             - git log *
             - git diff *
+            - mkdir *
+            - /home/florin/test-jmix/test_env/bin/jmix-cli *
+            - rm *
+            - pwd
