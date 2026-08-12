@@ -191,25 +191,69 @@ def main() -> None:
         if action == "migrate-all":
             inject_audit_dependencies()
             mode = "force" if "--force" in sys.argv else "prompt"
+            from jmix_cli.entity import has_existing_entity_and_changelog
+            ordered_list = get_sorted_entities_by_dependency()
+            # Determine whether migrate_all_entities() will call generate_all_entities()
+            # (which handles User relations itself) or take the incremental path.
+            needs_generate_all = any(
+                ent != "User" and not has_existing_entity_and_changelog(ent)
+                for ent in ordered_list
+            ) if ordered_list else False
             run_migrate_all(mode)
             logger.info("[⚡] PHASE 1.6: Injecting COMPOSITION_1:N relationships into parent entities...")
-            ordered_list = get_sorted_entities_by_dependency()
             for ent in ordered_list:
                 relations_list = get_relations_from_csv("relations.csv", ent)
                 composition_rels = [rel for rel in relations_list if rel["type"] == "COMPOSITION_1:N"]
                 if composition_rels:
                     _inject_composition_into_parent(ent, composition_rels)
             _finalize_composition_relationships()
+            # Generate User's relation changelog BEFORE injecting relation fields
+            # into User.java.  The changelog generator uses _column_already_exists()
+            # to decide whether to emit <addColumn>; if Java is patched first, the
+            # column appears to exist and addColumn is skipped, causing a Liquibase
+            # failure at startup (FK references a non-existent column).
+            #
+            # Like migrate_entity() does for non-User entities, we also separate
+            # the <addColumn> for User relation FK columns into its own changelog
+            # file and pass skip_add_column_fks to the relations changelog.  This
+            # keeps the relations-changelog content stable (FK-only) across repeated
+            # runs, so the "already exists and is up-to-date" check works correctly.
+            user_relations = get_relations_from_csv("relations.csv", "User")
+            if user_relations and not needs_generate_all:
+                from jmix_cli.migrate.adapters import HSQLDBAdapter
+                from jmix_cli.migrate.diff import get_missing_relation_columns, get_table_name
+                from jmix_cli.migrate.changelog import gen_add_column_changelog
+                from jmix_cli.core.files import ensure_dir, write_file
+                from jmix_cli.liquibase.relations import gen_liquibase_relations_changelog
+
+                db_adapter = HSQLDBAdapter()
+                missing_user_relation_cols = get_missing_relation_columns("User", db_adapter)
+                skip_add_column_fks = {col["name"] for col in missing_user_relation_cols}
+
+                if missing_user_relation_cols:
+                    add_content = gen_add_column_changelog("User", missing_user_relation_cols)
+                    table_name = get_table_name("User")
+                    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+                    target_dir = (
+                        PROIECT_PATH / "src" / "main" / "resources"
+                        / company_path / project_name / "liquibase" / "changelog"
+                        / datetime.now().strftime("%Y") / datetime.now().strftime("%m")
+                    )
+                    ensure_dir(str(target_dir))
+                    add_filename = target_dir / f"{timestamp}-alter-{table_name}-addField.xml"
+                    write_file(add_filename, add_content)
+                    logger.info(f"✨ Created incremental changelog: {add_filename}")
+
+                gen_liquibase_relations_changelog("User", user_relations, skip_add_column_fks)
             for ent in ordered_list:
+                if ent == "User":
+                    continue
                 relations_list = get_relations_from_csv("relations.csv", ent)
                 if relations_list:
                     from jmix_cli.entity.relations.inject import inject_relations_into_existing_entity
                     inject_relations_into_existing_entity(ent, relations_list)
-            user_relations = get_relations_from_csv("relations.csv", "User")
-            if user_relations:
-                from jmix_cli.liquibase.relations import gen_liquibase_relations_changelog
+            if user_relations and not needs_generate_all:
                 from jmix_cli.user import inject_relations_into_existing_user
-                gen_liquibase_relations_changelog("User", user_relations)
                 inject_relations_into_existing_user("User", user_relations)
             run_security()
             update_checkbox_required_state_property()

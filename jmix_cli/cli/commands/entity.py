@@ -25,11 +25,12 @@
 # -
 
 import csv
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 from jmix_cli.core.project import COMPANY, PROIECT_PATH, company_path, project_name
-from jmix_cli.core.files import write_file
+from jmix_cli.core.files import write_file, ensure_dir
 from jmix_cli.core.logger import get_logger
 from jmix_cli.core.csv import csv_has_data, validate_csv_path
 from jmix_cli.exceptions import UserInputError, ConfigurationError
@@ -182,7 +183,29 @@ def generate_all_entities() -> None:
         if ent == "User":
             relations_list = get_relations_from_csv("relations.csv", "User")
             if relations_list:
-                gen_liquibase_relations_changelog("User", relations_list)
+                from jmix_cli.migrate.adapters import HSQLDBAdapter
+                from jmix_cli.migrate.diff import get_missing_relation_columns, get_table_name
+                from jmix_cli.migrate.changelog import gen_add_column_changelog
+
+                db_adapter = HSQLDBAdapter()
+                missing_user_relation_cols = get_missing_relation_columns("User", db_adapter)
+                skip_add_column_fks = {col["name"] for col in missing_user_relation_cols}
+
+                if missing_user_relation_cols:
+                    add_content = gen_add_column_changelog("User", missing_user_relation_cols)
+                    table_name = get_table_name("User")
+                    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+                    target_dir = (
+                        PROIECT_PATH / "src" / "main" / "resources"
+                        / company_path / project_name / "liquibase" / "changelog"
+                        / datetime.now().strftime("%Y") / datetime.now().strftime("%m")
+                    )
+                    ensure_dir(str(target_dir))
+                    add_filename = target_dir / f"{timestamp}-alter-{table_name}-addField.xml"
+                    write_file(add_filename, add_content)
+                    logger.info(f"✨ Created incremental changelog: {add_filename}")
+
+                gen_liquibase_relations_changelog("User", relations_list, skip_add_column_fks)
                 inject_relations_into_existing_user("User", relations_list)
                 inverse_user_rels = _get_inverse_composition_relations("User")
                 relations_list = relations_list + inverse_user_rels
