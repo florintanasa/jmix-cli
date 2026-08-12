@@ -95,12 +95,50 @@ def _update_menu(n: str) -> None:
     logger.warning("⚠️ Invalid structure for menu.xml (missing closing </menu> tag)!")
 
 
+def _gen_relations_changelog_with_addcolumn(entity_name: str, relations_list: list[dict[str, Any]]) -> None:
+    """Generate relations changelog with a separate addColumn file.
+
+    Mirrors migrate_entity()'s approach for non-User entities: separates
+    <addColumn> for relation FK columns into its own changelog file and
+    passes skip_add_column_fks to gen_liquibase_relations_changelog so the
+    relations changelog is always FK-only.  This keeps the changelog content
+    stable across repeated runs (idempotent).
+
+    Must be called BEFORE relation fields are injected into the Java entity,
+    so that _column_already_exists() in the changelog generator does not
+    detect the fields and skip <addColumn>.
+    """
+    from jmix_cli.migrate.adapters import HSQLDBAdapter
+    from jmix_cli.migrate.diff import get_missing_relation_columns, get_table_name
+    from jmix_cli.migrate.changelog import gen_add_column_changelog
+
+    db_adapter = HSQLDBAdapter()
+    missing_cols = get_missing_relation_columns(entity_name, db_adapter)
+    skip_add_column_fks = {col["name"] for col in missing_cols}
+
+    if missing_cols:
+        add_content = gen_add_column_changelog(entity_name, missing_cols)
+        table_name = get_table_name(entity_name)
+        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        target_dir = (
+            PROIECT_PATH / "src" / "main" / "resources"
+            / company_path / project_name / "liquibase" / "changelog"
+            / datetime.now().strftime("%Y") / datetime.now().strftime("%m")
+        )
+        ensure_dir(str(target_dir))
+        add_filename = target_dir / f"{timestamp}-alter-{table_name}-addField.xml"
+        write_file(add_filename, add_content)
+        logger.info(f"✨ Created incremental changelog: {add_filename}")
+
+    gen_liquibase_relations_changelog(entity_name, relations_list, skip_add_column_fks)
+
+
 def generate_single_entity(name: str) -> None:
     if name == "User":
         logger.info("👤 [System User] Triggering relational infiltration...")
         relations_list = get_relations_from_csv("relations.csv", "User")
         if relations_list:
-            gen_liquibase_relations_changelog("User", relations_list)
+            _gen_relations_changelog_with_addcolumn("User", relations_list)
             inject_relations_into_existing_user(name, relations_list)
             from jmix_cli.i18n import ask_ollama_translation
             resources_path = PROIECT_PATH / "src" / "main" / "resources" / company_path / project_name
@@ -151,7 +189,7 @@ def generate_single_entity(name: str) -> None:
             gen_entity_mechanic_from_csv(name, fields_list, traits, relations_list)
             gen_liquibase_changelog_from_csv(name, fields_list, traits)
             if relations_list:
-                gen_liquibase_relations_changelog(name, relations_list)
+                _gen_relations_changelog_with_addcolumn(name, relations_list)
 
         computed_traits_list = [row["field_name"].strip() for row in csv.DictReader(Path("entities.csv").open(encoding="utf-8")) if row["entity_name"].strip() == name.strip()]
         if not computed_traits_list:
@@ -183,29 +221,7 @@ def generate_all_entities() -> None:
         if ent == "User":
             relations_list = get_relations_from_csv("relations.csv", "User")
             if relations_list:
-                from jmix_cli.migrate.adapters import HSQLDBAdapter
-                from jmix_cli.migrate.diff import get_missing_relation_columns, get_table_name
-                from jmix_cli.migrate.changelog import gen_add_column_changelog
-
-                db_adapter = HSQLDBAdapter()
-                missing_user_relation_cols = get_missing_relation_columns("User", db_adapter)
-                skip_add_column_fks = {col["name"] for col in missing_user_relation_cols}
-
-                if missing_user_relation_cols:
-                    add_content = gen_add_column_changelog("User", missing_user_relation_cols)
-                    table_name = get_table_name("User")
-                    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-                    target_dir = (
-                        PROIECT_PATH / "src" / "main" / "resources"
-                        / company_path / project_name / "liquibase" / "changelog"
-                        / datetime.now().strftime("%Y") / datetime.now().strftime("%m")
-                    )
-                    ensure_dir(str(target_dir))
-                    add_filename = target_dir / f"{timestamp}-alter-{table_name}-addField.xml"
-                    write_file(add_filename, add_content)
-                    logger.info(f"✨ Created incremental changelog: {add_filename}")
-
-                gen_liquibase_relations_changelog("User", relations_list, skip_add_column_fks)
+                _gen_relations_changelog_with_addcolumn("User", relations_list)
                 inject_relations_into_existing_user("User", relations_list)
                 inverse_user_rels = _get_inverse_composition_relations("User")
                 relations_list = relations_list + inverse_user_rels
@@ -266,7 +282,7 @@ def generate_all_entities() -> None:
                 gen_liquibase_changelog_from_csv(ent, fields_list, traits)
 
                 if relations_list:
-                    gen_liquibase_relations_changelog(ent, relations_list)
+                    _gen_relations_changelog_with_addcolumn(ent, relations_list)
 
             computed_traits_list = [row["field_name"].strip() for row in csv.DictReader(Path("entities.csv").open(encoding="utf-8")) if row["entity_name"].strip() == ent.strip()]
             if not computed_traits_list:
