@@ -1,0 +1,23 @@
+tools:
+    shell:
+        allow:
+            - ls *
+            - find *
+            - head *
+            - sort
+            - wc *
+            - sort *
+            - echo *
+            - cat *
+            - source *
+            - which jmix-cli
+            - python *
+            - cd *
+            - cp *
+            - jmix-cli migrate-all
+            - grep *
+            - pip install *
+            - tail *
+            - jmix-cli build-all *
+            - diff *
+            - git diff
