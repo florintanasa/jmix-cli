@@ -21,3 +21,10 @@ tools:
             - jmix-cli build-all *
             - diff *
             - git diff
+            - python3 *
+            - '[ *'
+            - '[ "$add_col_count" *'
+            - git add *
+            - git commit *
+            - git log *
+            - git diff *
