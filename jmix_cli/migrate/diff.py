@@ -99,7 +99,7 @@ def _read_all_relations() -> list[dict[str, Any]]:
                 "mandatory": row["mandatory"].strip().lower() == "true",
             }
             if "ownership" in (reader.fieldnames or []):
-                rel_dict["ownership"] = row.get("ownership", "").strip()
+                rel_dict["ownership"] = (row.get("ownership") or "").strip()
             relations_list.append(rel_dict)
     return relations_list
 
@@ -133,10 +133,44 @@ def _get_relation_field_names(entity_name: str) -> set[str]:
     for rel in _read_all_relations():
         if rel["target"].upper() != entity_name.upper():
             continue
-        if rel["type"] == "COMPOSITION_1:1":
+        src_class = rel["source"]
+        inv_field = src_class[0].lower() + src_class[1:]
+        if rel["type"] in ("COMPOSITION_1:1", "1:1"):
             field_names.add(rel["field"].upper())
-            inv_field = rel["source"][0].lower() + rel["source"][1:]
             field_names.add(inv_field.upper())
+        elif rel["type"] in ("COMPOSITION_1:N", "N:1"):
+            field_names.add(inv_field.upper())
+        elif rel["type"] == "N:N":
+            inv_field_list = inv_field + "s" if not inv_field.endswith("s") else inv_field
+            field_names.add(inv_field_list.upper())
+            field_names.add(inv_field.upper())
+
+    # Scan Java for relation-annotated private fields — catches inverse fields
+    # left over from a previous relation type change (e.g. COMPOSITION_1:1 →
+    # COMPOSITION_1:N, where the old @OneToOne(mappedBy) field is still present).
+    entity_path = (
+        PROIECT_PATH / "src" / "main" / "java" / company_path / project_name / "entity" / f"{entity_name}.java"
+    )
+    if entity_path.exists():
+        content = entity_path.read_text(encoding="utf-8")
+        lines = content.splitlines()
+        relation_annos = ("@OneToOne", "@ManyToOne", "@OneToMany", "@ManyToMany", "@Composition")
+        for idx, line in enumerate(lines):
+            stripped = line.strip()
+            if not stripped.startswith("private "):
+                continue
+            # Collect the annotation block above this field
+            block_start = idx - 1
+            while block_start >= 0 and not lines[block_start].strip().startswith("private "):
+                block_start -= 1
+            block_start += 1
+            block = "\n".join(lines[block_start:idx])
+            if any(anno in block for anno in relation_annos):
+                # Field name is the last identifier before the semicolon
+                # (e.g. "private List<Client> project;" → "project")
+                field_match = re.search(r'\bprivate\s+.*?(\w+)\s*;', stripped)
+                if field_match:
+                    field_names.add(field_match.group(1).upper())
 
     return field_names
 
