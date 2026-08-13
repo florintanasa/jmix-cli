@@ -34,6 +34,11 @@ def build_nn_fields(rel: dict[str, str], name: str) -> tuple[str, str, set[str]]
     f_name = rel["field"]
     tgt_class = rel["target"]
     ownership = rel.get("ownership", "owning")
+    # Normalize ownership: "true" means source has mappedBy (inverse), "false" means both-owning
+    if ownership == "true":
+        ownership = "owning"  # source has @ManyToMany(mappedBy), target has @JoinTable
+    elif ownership == "false":
+        ownership = "both-owning"  # both have @JoinTable
     join_table_name = f"{name.upper()}_{tgt_class.upper()}_LINK"
     src_fk_col = f"{name.upper()}_ID"
     tgt_fk_col = f"{tgt_class.upper()}_ID"
@@ -55,7 +60,10 @@ def build_nn_fields(rel: dict[str, str], name: str) -> tuple[str, str, set[str]]
     tgt_file_path = PROIECT_PATH / "src" / "main" / "java" / company_path / project_name / "entity" / f"{tgt_class}.java"
     if tgt_file_path.exists():
         java_tgt_content = tgt_file_path.read_text(encoding="utf-8")
-        if f"private List<{name}> {inv_field_name};" not in java_tgt_content:
+        # Check if mappedBy annotation already exists (for owning/single-owning ownership)
+        check_annotated = f'@ManyToMany(mappedBy = "{f_name}")' in java_tgt_content
+        check_field = f"private List<{name}> {inv_field_name};" in java_tgt_content
+        if not check_annotated and not check_field:
             if ownership == "both-owning":
                 join_table_name = f"{name.upper()}_{tgt_class.upper()}_LINK"
                 tgt_src_fk = f"{tgt_class.upper()}_ID"
@@ -67,26 +75,36 @@ def build_nn_fields(rel: dict[str, str], name: str) -> tuple[str, str, set[str]]
                 java_tgt_content = inject_import_if_missing(java_tgt_content, "jakarta.persistence.JoinTable")
                 java_tgt_content = inject_import_if_missing(java_tgt_content, "jakarta.persistence.JoinColumn")
             else:
-                inv_field = f'    @ManyToMany(mappedBy = "{f_name}")\n'
-            inv_field += f"    private List<{name}> {inv_field_name};\n\n"
-            inv_caps = inv_field_name[0].upper() + inv_field_name[1:]
-            inv_methods = f"    public List<{name}> get{inv_caps}() {{\n        return {inv_field_name};\n    }}\n\n"
-            inv_methods += f"    public void set{inv_caps}(List<{name}> {inv_field_name}) {{\n        this.{inv_field_name} = {inv_field_name};\n    }}\n\n"
-            java_tgt_content = inject_import_if_missing(java_tgt_content, "jakarta.persistence.ManyToMany")
-            java_tgt_content = inject_import_if_missing(java_tgt_content, "java.util.List")
-            if "    public UUID getId()" in java_tgt_content:
-                java_tgt_content = java_tgt_content.replace(
-                    "    public UUID getId()",
-                    f"{inv_field}    public UUID getId()",
-                )
-            last_brace = java_tgt_content.rfind("}")
-            if last_brace != -1:
-                java_tgt_content = (
-                    java_tgt_content[:last_brace]
-                    + "\n"
-                    + inv_methods
-                    + java_tgt_content[last_brace:]
-                )
+                # ownership is "owning" or "single-owning": add @ManyToMany(mappedBy)
+                # Field may already exist, so we need to add only the annotation
+                if check_field:
+                    # Replace the field line with annotated version
+                    java_tgt_content = java_tgt_content.replace(
+                        f"private List<{name}> {inv_field_name};",
+                        f'    @ManyToMany(mappedBy = "{f_name}")\n    private List<{name}> {inv_field_name};',
+                        1
+                    )
+                else:
+                    inv_field = f'    @ManyToMany(mappedBy = "{f_name}")\n'
+                    inv_field += f"    private List<{name}> {inv_field_name};\n\n"
+                    inv_caps = inv_field_name[0].upper() + inv_field_name[1:]
+                    inv_methods = f"    public List<{name}> get{inv_caps}() {{\n        return {inv_field_name};\n    }}\n\n"
+                    inv_methods += f"    public void set{inv_caps}(List<{name}> {inv_field_name}) {{\n        this.{inv_field_name} = {inv_field_name};\n    }}\n\n"
+                    java_tgt_content = inject_import_if_missing(java_tgt_content, "jakarta.persistence.ManyToMany")
+                    java_tgt_content = inject_import_if_missing(java_tgt_content, "java.util.List")
+                    if "    public UUID getId()" in java_tgt_content:
+                        java_tgt_content = java_tgt_content.replace(
+                            "    public UUID getId()",
+                            f"{inv_field}    public UUID getId()",
+                        )
+                    last_brace = java_tgt_content.rfind("}")
+                    if last_brace != -1:
+                        java_tgt_content = (
+                            java_tgt_content[:last_brace]
+                            + "\n"
+                            + inv_methods
+                            + java_tgt_content[last_brace:]
+                        )
             tgt_file_path.write_text(java_tgt_content, encoding="utf-8")
 
     return field, methods, dinamic_imports

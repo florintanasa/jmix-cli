@@ -30,6 +30,19 @@ from typing import Any
 from jmix_cli.core.project import COMPANY, PROIECT_PATH, company_path, project_name
 from jmix_cli.core.logger import get_logger
 
+
+def _normalize_ownership(ownership: str) -> str:
+    """Normalize ownership value from CSV to standard values.
+    
+    CSV values: "true" -> "owning" (source has mappedBy, target has JoinTable)
+                "false" -> "both-owning" (both have JoinTable)
+    """
+    if ownership == "true":
+        return "owning"
+    elif ownership == "false":
+        return "both-owning"
+    return ownership
+
 logger = get_logger("jmix_cli.entity.relations")
 
 
@@ -93,7 +106,7 @@ def _inject_nn(content: str, rel: dict[str, Any], source_name: str) -> str:
     tgt_class = rel["target"]
     if f"private List<{tgt_class}> {f_name};" in content or f"private Collection<{tgt_class}> {f_name};" in content:
         return content
-    ownership = rel.get("ownership", "owning")
+    ownership = _normalize_ownership(rel.get("ownership", "owning"))
     join_table = f"{source_name.upper()}_{tgt_class.upper()}_LINK"
     src_fk = f"{source_name.upper()}_ID"
     tgt_fk = f"{tgt_class.upper()}_ID"
@@ -128,7 +141,8 @@ def _inject_inverse_for_relation(source_name: str, rel: dict[str, Any]) -> None:
     tgt_class = rel["target"]
     f_name = rel["field"]
     r_type = rel["type"].upper()
-    if r_type not in {"1:1", "N:N"}:
+    ownership = _normalize_ownership(rel.get("ownership", "owning"))
+    if r_type not in {"1:1", "N:1", "N:N"}:
         return
     tgt_file_path = (
         PROIECT_PATH / "src" / "main" / "java" / company_path / project_name / "entity" / f"{tgt_class}.java"
@@ -152,11 +166,32 @@ def _inject_inverse_for_relation(source_name: str, rel: dict[str, Any]) -> None:
             return
         java_tgt_content = java_tgt_content[:last_brace] + inv_field + inv_methods + java_tgt_content[last_brace:]
         tgt_file_path.write_text(java_tgt_content, encoding="utf-8")
-    elif r_type == "N:N":
-        ownership = rel.get("ownership", "owning")
+    elif r_type == "N:1":
+        # For N:1 relation with ownership (source has FK, target has collection)
+        # ownership=true means source owns the relationship and has the FK
         inv_field_name = source_name.lower() + "s" if not source_name.endswith("s") else source_name.lower()
         check = f"private List<{source_name}> {inv_field_name};"
         if check in java_tgt_content:
+            return
+        logger.info(f"   -> Injecting inverse N:1 in {tgt_class}")
+        inv_field = f'    @OneToMany(mappedBy = "{f_name}")\n    private List<{source_name}> {inv_field_name};\n\n'
+        inv_caps = inv_field_name[0].upper() + inv_field_name[1:]
+        inv_methods = f"    public List<{source_name}> get{inv_caps}() {{\n        return {inv_field_name};\n    }}\n\n"
+        inv_methods += f"    public void set{inv_caps}(List<{source_name}> {inv_field_name}) {{\n        this.{inv_field_name} = {inv_field_name};\n    }}\n\n"
+        java_tgt_content = _ensure_import(java_tgt_content, "java.util.List")
+        java_tgt_content = _ensure_import(java_tgt_content, "jakarta.persistence.OneToMany")
+        last_brace = java_tgt_content.rfind("}")
+        if last_brace == -1:
+            return
+        java_tgt_content = java_tgt_content[:last_brace] + inv_field + inv_methods + java_tgt_content[last_brace:]
+        tgt_file_path.write_text(java_tgt_content, encoding="utf-8")
+    elif r_type == "N:N":
+        ownership = _normalize_ownership(rel.get("ownership", "owning"))
+        inv_field_name = source_name.lower() + "s" if not source_name.endswith("s") else source_name.lower()
+        # For owning/single-owning, check if mappedBy annotation exists (field may exist but without proper annotation)
+        check_annotated = f'@ManyToMany(mappedBy = "{f_name}")' in java_tgt_content
+        check_field = f"private List<{source_name}> {inv_field_name};" in java_tgt_content
+        if check_annotated or check_field:
             return
         logger.info(f"   -> Injecting inverse N:N in {tgt_class}")
         if ownership in ("owning", "single-owning"):

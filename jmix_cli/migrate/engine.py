@@ -362,6 +362,17 @@ def _is_relation_field_in_java(entity_name: str, relation: dict[str, Any]) -> bo
     if rel_type == "N:N":
         return False
 
+    # COMPOSITION_1:N: source has @ManyToOne with FK, target has @OneToMany
+    # For the source entity, check if the FK field already exists
+    if rel_type == "COMPOSITION_1:N":
+        field_name = relation.get("field", "")
+        if not field_name:
+            return False
+        fk_name = f"{field_name.upper()}_ID"
+        has_fk_field = f"private UUID {fk_name.lower()};" in content or f"private UUID {field_name.lower()};" in content
+        has_join_column = f"@JoinColumn(name = \"{fk_name}\")" in content
+        return has_fk_field and has_join_column
+
     return False
 
 
@@ -690,6 +701,101 @@ def migrate_entity(entity_name: str, mode: str = "prompt") -> None:
         update_messages_entity(str(PROIECT_PATH), f"{COMPANY}.{project_name}", entity_name, all_field_names, relations_list)
 
 
+def _relation_type_mismatch(entity_name: str, relation: dict[str, Any]) -> bool:
+    """Return True if the Java entity has annotation mismatch for the given relation.
+
+    Detects when the actual Java annotations do NOT match the expected type
+    from relations.csv. Used by migrate_all_entities to trigger full regeneration.
+    """
+    entity_path = (
+        PROIECT_PATH
+        / "src"
+        / "main"
+        / "java"
+        / company_path
+        / project_name
+        / "entity"
+        / f"{entity_name}.java"
+    )
+    if not entity_path.exists():
+        return False
+
+    content = entity_path.read_text(encoding="utf-8")
+    rel_type = relation.get("type", "N:1")
+    if isinstance(rel_type, str):
+        rel_type = rel_type.strip().upper()
+    else:
+        rel_type = str(rel_type).strip().upper()
+    f_name = relation.get("field", "")
+    tgt = relation.get("target", "")
+    mandatory_val = relation.get("mandatory", False)
+    if isinstance(mandatory_val, str):
+        mandatory = mandatory_val.strip().lower() == "true"
+    else:
+        mandatory = bool(mandatory_val)
+
+    # Check source-side (entity_name is source for N:1, 1:1, COMPOSITION_1:N, COMPOSITION_1:1)
+    # Target-side inverse is added by _finalize_composition_relationships / _inject_inverse_for_relation
+    # For now, only check source-side annotations
+
+    if rel_type == "N:1" or rel_type == "COMPOSITION_1:N":
+        # Expect @ManyToOne + @JoinColumn(name = "FIELD_ID") + nullable check
+        join_col = f'@JoinColumn\\(name\\s*=\\s*"' + f_name.upper() + '_ID"'
+        has_mto = "@ManyToOne" in content or "@ManyToMany" in content
+        has_join = re.search(join_col, content) is not None
+        nullable_check = rel_type == "N:1"  # COMPOSITION_1:N has own handling in inject_composition_1n
+        has_notnull = "@NotNull" in content and has_join is not None
+        if rel_type == "N:1":
+            return not (has_mto and has_join)
+        else:
+            return not (has_mto and has_join)  # COMPOSITION_1:N handled in inject_composition_1n
+    elif rel_type == "1:1":
+        # Expect @OneToOne + @JoinColumn(name = "FIELD_ID") on source
+        has_to_relation = "@OneToOne" in content
+        join_col = f'@JoinColumn\\(name\\s*=\\s*"' + f_name.upper() + '_ID"'
+        has_join = re.search(join_col, content) is not None
+        return not (has_to_relation and has_join)
+    elif rel_type == "COMPOSITION_1:1":
+        # Expect @Composition @OneToOne + @JoinColumn on source
+        has_composition = "@Composition" in content
+        has_to_relation = "@OneToOne" in content
+        join_col = f'@JoinColumn\\(name\\s*=\\s*"' + f_name.upper() + '_ID"'
+        has_join = re.search(join_col, content) is not None
+        return not (has_composition and has_to_relation and has_join)
+    elif rel_type == "N:N":
+        # Join table exists, check for @ManyToMany on source
+        join_table = f'{entity_name.lower()}_{tgt.lower()}_LINK'
+        return join_table not in content.lower()
+    return False
+
+
+def _any_relation_morphs_to_full_regen(entity_name: str) -> bool:
+    """Return True if any relation for the entity needs full Java regeneration."""
+    from jmix_cli.entity import get_relations_from_csv, get_sorted_entities_by_dependency
+
+    relations = get_relations_from_csv("relations.csv", entity_name)
+    if not relations:
+        return False
+
+    for rel in relations:
+        if _relation_type_mismatch(entity_name, rel):
+            logger.info(f"[migrate] Relation type mismatch detected for {entity_name}: {rel}")
+            return True
+
+    # Check inverse side for COMPOSITION relations
+    all_entities = get_sorted_entities_by_dependency()
+    for other_ent in all_entities:
+        other_rels = get_relations_from_csv("relations.csv", other_ent)
+        for rel in other_rels:
+            if rel["target"] == entity_name and rel["type"].startswith("COMPOSITION_"):
+                # This entity is the target of a COMPOSITION_1:N or COMPOSITION_1:1
+                # The inverse field may need to be updated
+                if _relation_type_mismatch(entity_name, rel):
+                    logger.info(f"[migrate] Inverse relation mismatch in {entity_name}")
+                    return True
+    return False
+
+
 def migrate_all_entities(mode: str = "prompt") -> None:
     """Run migration for all entities defined in entities.csv."""
     from jmix_cli.entity import get_sorted_entities_by_dependency, has_existing_entity_and_changelog
@@ -705,6 +811,13 @@ def migrate_all_entities(mode: str = "prompt") -> None:
 
     if missing:
         logger.info(f"[migrate] {len(missing)} entity(ies) missing. Running full generation...")
+        generate_all_entities()
+        return
+
+    # Check if any relation type has morphed (requires full Java regeneration)
+    need_full_regen = any(_any_relation_morphs_to_full_regen(ent) for ent in entities if ent != "User")
+    if need_full_regen:
+        logger.info("[migrate] Relation type changed detected. Running full generation...")
         generate_all_entities()
         return
 
