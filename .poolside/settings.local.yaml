@@ -70,6 +70,9 @@ tools:
             - sleep 25
             - tr *
             - git *
+            - pip show *
+            - tee *
+            - sleep 30
 paths:
     allow:
         - path: /tmp/agilepm/**
