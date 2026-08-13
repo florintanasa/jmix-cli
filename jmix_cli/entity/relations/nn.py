@@ -107,4 +107,35 @@ def build_nn_fields(rel: dict[str, str], name: str) -> tuple[str, str, set[str]]
                         )
             tgt_file_path.write_text(java_tgt_content, encoding="utf-8")
 
+        # For both-owning: also add the inverse side in the target entity
+        # with its own @JoinTable (different column order)
+        if ownership == "both-owning":
+            # tgt_file_path is Client.java (target entity)
+            # The field in Client.java should be "teams" (Client has many Teams)
+            tgt_field_name = name.lower() + "s" if not name.endswith("s") else name.lower()
+            # Check if the field already exists in tgt_file_path (Client.java)
+            if tgt_field_name not in open(tgt_file_path, 'r', encoding='utf-8').read() or \
+               f"private List<{name}> {tgt_field_name};" not in open(tgt_file_path, 'r', encoding='utf-8').read():
+                tgt_join_table = f"{tgt_class.upper()}_{name.upper()}_LINK"
+                tgt_src_fk = f"{tgt_class.upper()}_ID"
+                tgt_tgt_fk = f"{name.upper()}_ID"
+                tgt_field = f'    @ManyToMany\n'
+                tgt_field += f'    @JoinTable(name = "{tgt_join_table}",\n'
+                tgt_file = PROIECT_PATH / "src/main/java" / company_path / project_name / "entity" / f"{tgt_class}.java"
+                if tgt_file.exists():
+                    tgt_content = tgt_file.read_text(encoding="utf-8")
+                    tgt_field = f'    @ManyToMany\n'
+                    tgt_field += f'    @JoinTable(name = "{tgt_join_table}",\n'
+                    tgt_field += f'            joinColumns = @JoinColumn(name = "{tgt_src_fk}"),\n'
+                    tgt_field += f'            inverseJoinColumns = @JoinColumn(name = "{tgt_tgt_fk}"))\n'
+                    tgt_field += f"    private List<{name}> {tgt_field_name};\n\n"
+                    tgt_content = inject_import_if_missing(tgt_content, "jakarta.persistence.ManyToMany")
+                    tgt_content = inject_import_if_missing(tgt_content, "jakarta.persistence.JoinTable")
+                    tgt_content = inject_import_if_missing(tgt_content, "jakarta.persistence.JoinColumn")
+                    tgt_content = inject_import_if_missing(tgt_content, "java.util.List")
+                    last_brace = tgt_content.rfind("}")
+                    if last_brace != -1:
+                        tgt_content = tgt_content[:last_brace] + tgt_field + tgt_content[last_brace:]
+                        tgt_file.write_text(tgt_content, encoding="utf-8")
+
     return field, methods, dinamic_imports
