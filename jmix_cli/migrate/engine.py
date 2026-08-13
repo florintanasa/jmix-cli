@@ -445,6 +445,14 @@ def migrate_entity(entity_name: str, mode: str = "prompt") -> None:
                     f"private {field_type} {old_name};",
                     f"private {field_type} {new_name};",
                 )
+                # Keep @Column(name=...) aligned with the renamed DB column so that
+                # JPA/Hibernate query the new column name after the rename changelog
+                # runs. Without this, the entity field would still map to the old
+                # (now-renamed) column and break list/detail views at runtime.
+                java_content = java_content.replace(
+                    f'name = "{old_name.upper()}"',
+                    f'name = "{new_name.upper()}"',
+                )
                 java_content = java_content.replace(
                     f"return {old_name};",
                     f"return {new_name};",
@@ -461,9 +469,15 @@ def migrate_entity(entity_name: str, mode: str = "prompt") -> None:
                     f"this.{old_name} = {old_name};",
                     f"this.{new_name} = {new_name};",
                 )
-                java_content = java_content.replace(
-                    f"this.{old_name}",
+                # Use a word-boundary regex (NOT a plain substring replace) for any
+                # remaining `this.<oldName>` references: after the exact substitution
+                # above, `this.<oldName>` is now a *prefix* of `this.<newName>` (e.g.
+                # `this.amount` inside `this.amountToLoad`). A substring replace would
+                # re-match that prefix and produce values like `this.amountToLoadToLoad`.
+                java_content = re.sub(
+                    rf"this\.{re.escape(old_name)}(?!\w)",
                     f"this.{new_name}",
+                    java_content,
                 )
                 entity_path.write_text(java_content, encoding="utf-8")
                 logger.info(f"✅ Renamed field in Java: {old_name} -> {new_name}")
@@ -607,9 +621,11 @@ def migrate_entity(entity_name: str, mode: str = "prompt") -> None:
             "FIRSTNAME", "LASTNAME", "TIMEZONEID", "USERPROFILE",
         }
     dropped_upper = {name.upper() for name in dropped_columns}
+    renamed_old_upper = {name.upper() for name in renamed_old_names}
     all_dropped = [
         name for name in dropped_columns
         if name.upper() not in user_standard_cols
+        and name.upper() not in renamed_old_upper
     ] + [
         name for name in dropped_from_csv
         if name.upper() not in dropped_upper
