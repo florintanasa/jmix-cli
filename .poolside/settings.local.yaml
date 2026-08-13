@@ -32,3 +32,44 @@ tools:
             - /home/florin/test-jmix/test_env/bin/jmix-cli *
             - rm *
             - pwd
+            - jmix-cli *
+            - sed *
+            - java *
+            - ./gradlew *
+            - sleep 45
+            - unzip *
+            - strings
+            - javap *
+            - xargs *
+            - sleep 50
+            - curl *
+            - pkill *
+            - sleep 3
+            - ps aux
+            - sleep 4
+            - sleep 2
+            - sleep 48
+            - sleep 46
+            - sleep 5
+            - stat *
+            - sleep 35
+            - cut *
+            - sleep 6
+            - pgrep *
+            - ps *
+            - sleep 16
+            - awk *
+            - ss *
+            - sleep 22
+            - kill *
+            - sleep 7
+            - sleep 24
+            - sleep 15
+            - break
+            - sleep 12
+            - sleep 25
+            - tr *
+            - git *
+paths:
+    allow:
+        - path: /tmp/agilepm/**
