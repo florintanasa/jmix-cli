@@ -129,6 +129,10 @@ def build_nn_fields(rel: dict[str, str], name: str) -> tuple[str, str, set[str]]
                     tgt_field += f'            joinColumns = @JoinColumn(name = "{tgt_src_fk}"),\n'
                     tgt_field += f'            inverseJoinColumns = @JoinColumn(name = "{tgt_tgt_fk}"))\n'
                     tgt_field += f"    private List<{name}> {tgt_field_name};\n\n"
+                    # Add getter and setter
+                    tgt_caps = tgt_field_name[0].upper() + tgt_field_name[1:]
+                    tgt_field += f"    public List<{name}> get{tgt_caps}() {{\n        return {tgt_field_name};\n    }}\n\n"
+                    tgt_field += f"    public void set{tgt_caps}(List<{name}> {tgt_field_name}) {{\n        this.{tgt_field_name} = {tgt_field_name};\n    }}\n\n"
                     tgt_content = inject_import_if_missing(tgt_content, "jakarta.persistence.ManyToMany")
                     tgt_content = inject_import_if_missing(tgt_content, "jakarta.persistence.JoinTable")
                     tgt_content = inject_import_if_missing(tgt_content, "jakarta.persistence.JoinColumn")
