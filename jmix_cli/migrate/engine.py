@@ -360,7 +360,11 @@ def _is_relation_field_in_java(entity_name: str, relation: dict[str, Any]) -> bo
         return f"private UUID {fk_name.lower()};" in content or f"private UUID {field_name.lower()};" in content
 
     if rel_type == "N:N":
-        return False
+        field_name = relation.get("field", "")
+        tgt_class = relation.get("target", "")
+        target_lower = tgt_class.lower() + "s" if not tgt_class.lower().endswith("s") else tgt_class.lower()
+        return f"private List<{tgt_class}> {field_name};" in content or \
+               f"private List<{tgt_class}> {target_lower};" in content
 
     # COMPOSITION_1:N: source has @ManyToOne with FK, target has @OneToMany
     # For the source entity, check if the FK field already exists
@@ -739,16 +743,23 @@ def _relation_type_mismatch(entity_name: str, relation: dict[str, Any]) -> bool:
     # For now, only check source-side annotations
 
     if rel_type == "N:1" or rel_type == "COMPOSITION_1:N":
-        # Expect @ManyToOne + @JoinColumn(name = "FIELD_ID") + nullable check
-        join_col = f'@JoinColumn\\(name\\s*=\\s*"' + f_name.upper() + '_ID"'
+        # For N:1: field_name is the FK (e.g. "client" -> CLIENT_ID)
+        # For COMPOSITION_1:N: the FK column is derived from target class (e.g. "Project" -> PROJECT_ID)
+        #    because inject_composition_1n creates: private {target} {target.lower()}; with @JoinColumn({TARGET}_ID)
+        if rel_type == "COMPOSITION_1:N":
+            fk_field = tgt[0].lower() + tgt[1:]  # e.g. "Project" -> "project"
+            fk_col = f"{tgt.upper()}_ID"        # e.g. "PROJECT_ID"
+        else:
+            fk_field = f_name
+            fk_col = f"{f_name.upper()}_ID"
+        join_col = f'@JoinColumn\\(name\\s*=\\s*"{fk_col}"'
         has_mto = "@ManyToOne" in content or "@ManyToMany" in content
         has_join = re.search(join_col, content) is not None
-        nullable_check = rel_type == "N:1"  # COMPOSITION_1:N has own handling in inject_composition_1n
-        has_notnull = "@NotNull" in content and has_join is not None
+        has_fk_field = f"private {tgt} {fk_field};" in content
         if rel_type == "N:1":
             return not (has_mto and has_join)
         else:
-            return not (has_mto and has_join)  # COMPOSITION_1:N handled in inject_composition_1n
+            return not (has_mto and has_join and has_fk_field)  # COMPOSITION_1:N handled in inject_composition_1n
     elif rel_type == "1:1":
         # Expect @OneToOne + @JoinColumn(name = "FIELD_ID") on source
         has_to_relation = "@OneToOne" in content
@@ -764,7 +775,7 @@ def _relation_type_mismatch(entity_name: str, relation: dict[str, Any]) -> bool:
         return not (has_composition and has_to_relation and has_join)
     elif rel_type == "N:N":
         # Join table exists, check for @ManyToMany on source
-        join_table = f'{entity_name.lower()}_{tgt.lower()}_LINK'
+        join_table = f'{entity_name.lower()}_{tgt.lower()}_link'
         return join_table not in content.lower()
     return False
 
@@ -789,10 +800,33 @@ def _any_relation_morphs_to_full_regen(entity_name: str) -> bool:
         for rel in other_rels:
             if rel["target"] == entity_name and rel["type"].startswith("COMPOSITION_"):
                 # This entity is the target of a COMPOSITION_1:N or COMPOSITION_1:1
-                # The inverse field may need to be updated
-                if _relation_type_mismatch(entity_name, rel):
-                    logger.info(f"[migrate] Inverse relation mismatch in {entity_name}")
-                    return True
+                # Check if the inverse field exists in this entity (target)
+                src_class = other_ent  # source entity = other_ent
+                src_field = rel["field"]  # collection/field name from source
+                # For COMPOSITION_1:N: target has List<Source> (collection)
+                # For COMPOSITION_1:1: target has Source (single instance)
+                entity_path = (
+                    PROIECT_PATH / "src/main/java" / company_path / project_name / "entity" / f"{entity_name}.java"
+                )
+                if entity_path.exists():
+                    content = entity_path.read_text(encoding="utf-8")
+                    if rel["type"] == "COMPOSITION_1:N":
+                        # Expect collection: List<Source> {field}s
+                        src_field_plural = src_field + "s" if not src_field.endswith("s") else src_field
+                        expected = f"List<{src_class}> {src_field}"
+                        expected_plural = f"List<{src_class}> {src_field_plural}"
+                        has_field = expected in content or expected_plural in content
+                    elif rel["type"] == "COMPOSITION_1:1":
+                        # Expect single instance: Source {field}
+                        src_field_lower = src_class[0].lower() + src_class[1:]
+                        expected = f"private {src_class} {src_field_lower};"
+                        expected_alt = f"{src_class} {src_field_lower}"
+                        has_field = expected in content or expected_alt in content
+                    else:
+                        has_field = True  # Unknown type, assume OK
+                    if not has_field:
+                        logger.info(f"[migrate] Inverse relation mismatch in {entity_name}: missing field for {rel}")
+                        return True
     return False
 
 

@@ -63,6 +63,31 @@ def _fk_constraint_exists_in_changelog(src_table: str, fk_name: str) -> bool:
     return False
 
 
+def _table_exists_in_changelog(table_name: str) -> bool:
+    """Check if the table already exists in any changelog XML file."""
+    changelog_dir = (
+        PROIECT_PATH
+        / "src"
+        / "main"
+        / "resources"
+        / company_path
+        / project_name
+        / "liquibase"
+        / "changelog"
+    )
+    if not changelog_dir.exists():
+        return False
+    pattern = rf'createTable\s+tableName="{re.escape(table_name)}"'
+    for xml_file in changelog_dir.rglob("*.xml"):
+        try:
+            content = xml_file.read_text(encoding="utf-8")
+            if re.search(pattern, content, re.IGNORECASE):
+                return True
+        except OSError:
+            continue
+    return False
+
+
 def _column_already_exists(entity_name: str, column_name: str) -> bool:
     entity_path = (
         PROIECT_PATH
@@ -204,7 +229,9 @@ def gen_liquibase_relations_changelog(name: str, relations_list: list[dict[str, 
             join_table = f"{src_table_for_join}_{tgt_table}_LINK"
             src_fk = f"{src_table_for_join}_ID"
             tgt_fk = f"{tgt_table}_ID"
-            change_sets.append(
+            table_exists = _table_exists_in_changelog(join_table)
+            if not table_exists:
+                change_sets.append(
                 f"""    <changeSet id="{_stable_changeset_id(name, f"create-nn-{join_table.lower()}")}" author="{project_name}">
         <createTable tableName="{join_table}">
             <column name="{src_fk}" type="UUID">
