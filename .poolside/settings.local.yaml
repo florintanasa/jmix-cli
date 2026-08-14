@@ -73,6 +73,7 @@ tools:
             - pip show *
             - tee *
             - sleep 30
+            - sleep 40
 paths:
     allow:
         - path: /tmp/agilepm/**
