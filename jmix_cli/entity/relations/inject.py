@@ -167,11 +167,11 @@ def _inject_inverse_for_relation(source_name: str, rel: dict[str, Any]) -> None:
         java_tgt_content = java_tgt_content[:last_brace] + inv_field + inv_methods + java_tgt_content[last_brace:]
         tgt_file_path.write_text(java_tgt_content, encoding="utf-8")
     elif r_type == "N:1":
-        # For N:1 relation with ownership (source has FK, target has collection)
-        # ownership=true means source owns the relationship and has the FK
         inv_field_name = source_name.lower() + "s" if not source_name.endswith("s") else source_name.lower()
         check = f"private List<{source_name}> {inv_field_name};"
         if check in java_tgt_content:
+            return
+        if f"private {source_name} {inv_field_name};" in java_tgt_content:
             return
         logger.info(f"   -> Injecting inverse N:1 in {tgt_class}")
         inv_field = f'    @OneToMany(mappedBy = "{f_name}")\n    private List<{source_name}> {inv_field_name};\n\n'
