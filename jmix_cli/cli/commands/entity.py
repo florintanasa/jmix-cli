@@ -34,6 +34,7 @@ from jmix_cli.core.files import write_file, ensure_dir
 from jmix_cli.core.logger import get_logger
 from jmix_cli.core.csv import csv_has_data, validate_csv_path
 from jmix_cli.exceptions import UserInputError, ConfigurationError
+from jmix_cli.cli.dry_run import inject_audit_dependencies, _finalize_composition_relationships
 from jmix_cli.entity import (
     get_entities_from_csv,
     get_relations_from_csv,
@@ -208,7 +209,6 @@ def generate_all_entities() -> None:
     if not csv_has_data("entities.csv", ["entity_name", "field_name", "field_type", "mandatory", "unique"]):
         logger.info("Skipping entity generation: entities.csv is missing or empty.")
         return
-    from jmix_cli.cli.dry_run import inject_audit_dependencies, _finalize_composition_relationships, _patch_globals_for_dry_run, _copy_project_to_temp
     inject_audit_dependencies()
     logger.info("[*] Launching ENTITY-ONLY generation for ALL entities...")
     ordered_list = get_sorted_entities_by_dependency()
@@ -295,7 +295,6 @@ def generate_all_entities() -> None:
                 relations_list=relations_list_for_messages,
             )
             _update_menu(ent)
-    from jmix_cli.cli.dry_run import _finalize_composition_relationships
     logger.info("\n[⚡] PHASE 1.6: Injecting COMPOSITION_1:N relationships into parent entities...")
     for ent in ordered_list:
         relations_list = get_relations_from_csv("relations.csv", ent)
