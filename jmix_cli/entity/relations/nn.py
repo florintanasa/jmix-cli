@@ -113,9 +113,11 @@ def build_nn_fields(rel: dict[str, str], name: str) -> tuple[str, str, set[str]]
             # tgt_file_path is Client.java (target entity)
             # The field in Client.java should be "teams" (Client has many Teams)
             tgt_field_name = name.lower() + "s" if not name.endswith("s") else name.lower()
-            # Check if the field already exists in tgt_file_path (Client.java)
-            if tgt_field_name not in open(tgt_file_path, 'r', encoding='utf-8').read() or \
-               f"private List<{name}> {tgt_field_name};" not in open(tgt_file_path, 'r', encoding='utf-8').read():
+            with open(tgt_file_path, 'r', encoding='utf-8') as f:
+                existing_content = f.read()
+            
+            if tgt_field_name not in existing_content or \
+               f"private List<{name}> {tgt_field_name};" not in existing_content:
                 tgt_join_table = f"{tgt_class.upper()}_{name.upper()}_LINK"
                 tgt_src_fk = f"{tgt_class.upper()}_ID"
                 tgt_tgt_fk = f"{name.upper()}_ID"
