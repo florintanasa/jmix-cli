@@ -33,6 +33,22 @@ from jmix_cli.entity.generator import (
     gen_entity_mechanic_from_csv,
     _inject_composition_into_parent,
 )
+from jmix_cli.entity.validator import (
+    validate_entities_csv,
+    validate_relations_csv,
+    validate_traits_csv,
+    validate_roles_csv,
+    EntityValidationError,
+    EntitiesCsvError,
+    RelationsCsvError,
+    TraitsCsvError,
+    RolesCsvError,
+)
+from jmix_cli.entity.migrator import (
+    EntityMigrator,
+    migrate_entity,
+    migrate_all_entities,
+)
 
 __all__ = [
     "get_entities_from_csv",
@@ -42,4 +58,16 @@ __all__ = [
     "has_existing_entity_and_changelog",
     "gen_entity_mechanic_from_csv",
     "_inject_composition_into_parent",
+    "validate_entities_csv",
+    "validate_relations_csv",
+    "validate_traits_csv",
+    "validate_roles_csv",
+    "EntityValidationError",
+    "EntitiesCsvError",
+    "RelationsCsvError",
+    "TraitsCsvError",
+    "RolesCsvError",
+    "EntityMigrator",
+    "migrate_entity",
+    "migrate_all_entities",
 ]
