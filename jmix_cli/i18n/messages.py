@@ -244,5 +244,5 @@ def update_messages_entity(
     logger.info(
         f"✨ Parametric localization layout for entity '{n}' successfully compiled across available locales!"
     )
-    from jmix_cli.i18n.cache import _persist_cache
-    _persist_cache()
+    from jmix_cli.i18n.manager import TranslationCache
+    TranslationCache.persist()
