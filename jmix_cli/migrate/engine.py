@@ -28,7 +28,8 @@ import re
 from datetime import datetime
 from typing import Any
 
-from jmix_cli.utils import COMPANY, PROIECT_PATH, company_path, ensure_dir, project_name, write_file
+from jmix_cli.core.project import COMPANY, PROIECT_PATH, company_path, project_name
+from jmix_cli.core.files import ensure_dir, write_file
 from jmix_cli.utils import get_logger
 from jmix_cli.entity import get_entities_from_csv, get_relations_from_csv
 
