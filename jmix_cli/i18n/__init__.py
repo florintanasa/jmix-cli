@@ -26,5 +26,27 @@
 
 from jmix_cli.i18n.messages import update_messages_entity
 from jmix_cli.i18n.translator import ask_ollama_translation
+from jmix_cli.i18n.manager import (
+    TranslationManager,
+    TranslationError,
+    TranslationServiceError,
+    TranslationDecodeError,
+    TranslationCache,
+    ask_ollama_translation as _ask_ollama_translation,
+    get_translation_stats,
+    clear_translation_cache,
+    translate_many,
+)
 
-__all__ = ["ask_ollama_translation", "update_messages_entity"]
+__all__ = [
+    "ask_ollama_translation",
+    "update_messages_entity",
+    "TranslationManager",
+    "TranslationError",
+    "TranslationServiceError",
+    "TranslationDecodeError",
+    "TranslationCache",
+    "get_translation_stats",
+    "clear_translation_cache",
+    "translate_many",
+]
