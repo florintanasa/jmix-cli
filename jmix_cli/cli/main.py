@@ -41,6 +41,7 @@ from jmix_cli.cli.dry_run import (
     _copy_project_to_temp,
     _finalize_composition_relationships,
     update_checkbox_required_state_property,
+    inject_audit_dependencies,
 )
 from jmix_cli.cli.commands.entity import generate_single_entity, generate_all_entities
 from jmix_cli.cli.commands.migrate import run_migrate, run_migrate_all
@@ -52,7 +53,6 @@ from jmix_cli.cli.commands.ui import (
     generate_all_detail_views,
 )
 from jmix_cli.cli.commands.build import run_build_all
-from jmix_cli.cli.dry_run import inject_audit_dependencies
 from jmix_cli.entity.relations.base import get_relations_from_csv
 from jmix_cli.entity.generator import _inject_composition_into_parent, get_sorted_entities_by_dependency
 
