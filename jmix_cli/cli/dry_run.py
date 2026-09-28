@@ -38,7 +38,7 @@ from pathlib import Path
 from jmix_cli.core.project import COMPANY, PROIECT_PATH, PROJECT, company_path, project_name
 from jmix_cli.core.files import write_file, update_checkbox_required_state_property
 from jmix_cli.core.logger import get_logger
-from jmix_cli.core.csv import csv_has_data
+from jmix_cli.core.csv import csv_has_data, InvalidCsvError
 from jmix_cli.exceptions import JmixCliError, ConfigurationError, GenerationError, UserInputError
 
 logger = get_logger("jmix_cli.cli.dry_run")
@@ -214,8 +214,13 @@ def _handle_error(error: Exception) -> None:
 def inject_audit_dependencies() -> None:
     from jmix_cli.core.project import PROIECT_PATH, company_path, project_name
 
-    if not csv_has_data("traits.csv", ["entity_name", "versioned", "audit_of_creation", "audit_of_modification", "soft_delete"]):
-        logger.info("Skipping audit dependency injection: traits.csv is missing or empty.")
+    try:
+        if not csv_has_data("traits.csv", ["entity_name", "versioned", "audit_of_creation", "audit_of_modification", "soft_delete"]):
+            logger.info("Skipping audit dependency injection: traits.csv is missing or empty.")
+            return
+    except InvalidCsvError as e:
+        logger.warning(f"Warning: {e}")
+        logger.info("Skipping audit dependency injection.")
         return
 
     build_gradle_path = PROIECT_PATH / "build.gradle"
@@ -273,7 +278,11 @@ def _finalize_composition_relationships() -> None:
     if not relations_path.exists():
         return
     from jmix_cli.core.csv import validate_csv_path
-    validate_csv_path("relations.csv", ["source_entity", "relation_type", "target_entity", "field_name", "mandatory"])
+    try:
+        validate_csv_path("relations.csv", ["source_entity", "relation_type", "target_entity", "field_name", "mandatory"])
+    except InvalidCsvError as e:
+        logger.warning(f"Warning: {e}")
+        return
     with relations_path.open(encoding="utf-8") as f:
         reader = csv.DictReader(f)
         for row in reader:

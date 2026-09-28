@@ -31,7 +31,7 @@ from typing import Any
 from jmix_cli.core.project import COMPANY, PROIECT_PATH, company_path, project_name
 from jmix_cli.core.files import write_file
 from jmix_cli.core.logger import get_logger
-from jmix_cli.core.csv import validate_csv_path
+from jmix_cli.core.csv import validate_csv_path, InvalidCsvError
 from jmix_cli.exceptions import ConfigurationError
 
 logger = get_logger("jmix_cli.security")
@@ -42,7 +42,10 @@ def gen_jmix_resource_roles_from_csv() -> None:
     if not roles_file.exists():
         raise ConfigurationError("roles.csv configuration file not found.")
 
-    validate_csv_path("roles.csv", ["name", "code", "entity_name", "ui_list", "ui_detail", "create", "read", "update", "delete"])
+    try:
+        validate_csv_path("roles.csv", ["name", "code", "entity_name", "ui_list", "ui_detail", "create", "read", "update", "delete"])
+    except InvalidCsvError as e:
+        raise ConfigurationError(str(e))
 
     roles_data: dict[str, dict[str, Any]] = {}
     with roles_file.open(mode="r", encoding="utf-8") as f:

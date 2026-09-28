@@ -33,7 +33,7 @@ from jmix_cli.core.constants import ISO_LANG_NAMES
 from jmix_cli.core.files import append_unique, replace_entity_messages
 from jmix_cli.core.logger import get_logger
 from jmix_cli.core.project import COMPANY, PROIECT_PATH, company_path, project_name
-from jmix_cli.core.csv import validate_csv_path
+from jmix_cli.core.csv import validate_csv_path, InvalidCsvError
 from jmix_cli.i18n.translator import ask_ollama_translation
 
 logger = get_logger("jmix_cli.i18n")
@@ -73,7 +73,10 @@ def update_messages_entity(
     }
     traits_csv_path = project_root / "traits.csv"
     if traits_csv_path.exists():
-        validate_csv_path("traits.csv", ["entity_name", "versioned", "audit_of_creation", "audit_of_modification", "soft_delete"])
+        try:
+            validate_csv_path("traits.csv", ["entity_name", "versioned", "audit_of_creation", "audit_of_modification", "soft_delete"])
+        except InvalidCsvError as e:
+            raise InvalidCsvError(str(e))
         with traits_csv_path.open(encoding="utf-8") as f:
             reader = csv.DictReader(f)
             for row in reader:

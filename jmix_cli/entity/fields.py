@@ -36,7 +36,10 @@ def get_entities_from_csv(csv_path: str, target_entity_name: str) -> list[dict[s
     csv_file = Path(csv_path)
     if not csv_file.exists():
         raise InvalidCsvError(csv_path, message=f"CSV file not found: {csv_path}")
-    validate_csv_path(csv_path, ["entity_name", "field_name", "field_type", "mandatory", "unique"])
+    try:
+        validate_csv_path(csv_path, ["entity_name", "field_name", "field_type", "mandatory", "unique"])
+    except InvalidCsvError as e:
+        raise InvalidCsvError(csv_path, message=str(e))
     fields_list: list[dict[str, Any]] = []
     with csv_file.open(mode="r", encoding="utf-8") as f:
         reader = csv.DictReader(f)

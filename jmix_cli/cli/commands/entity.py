@@ -206,7 +206,8 @@ def generate_single_entity(name: str) -> None:
 
 
 def generate_all_entities() -> None:
-    if not csv_has_data("entities.csv", ["entity_name", "field_name", "field_type", "mandatory", "unique"]):
+    csv_path = Path("entities.csv")
+    if not csv_has_data(str(csv_path), ["entity_name", "field_name", "field_type", "mandatory", "unique"]):
         logger.info("Skipping entity generation: entities.csv is missing or empty.")
         return
     inject_audit_dependencies()
@@ -214,7 +215,15 @@ def generate_all_entities() -> None:
     ordered_list = get_sorted_entities_by_dependency()
     logger.info(f"[*] Calculated generation sequence: {ordered_list}")
     relations_csv_path = Path("relations.csv")
-    relations_available = relations_csv_path.exists() and csv_has_data("relations.csv", ["source_entity", "relation_type", "target_entity", "field_name", "mandatory"])
+    if not relations_csv_path.exists():
+        logger.info("Skipping relations: relations.csv is missing.")
+        relations_available = False
+    else:
+        try:
+            relations_available = csv_has_data(str(relations_csv_path), ["source_entity", "relation_type", "target_entity", "field_name", "mandatory"])
+        except InvalidCsvError as e:
+            logger.warning(f"Warning: {e}")
+            relations_available = False
     if not relations_available:
         logger.info("Skipping relations: relations.csv is missing or empty.")
     for ent in ordered_list:

@@ -30,7 +30,7 @@ from typing import Any
 
 from jmix_cli.core.files import write_file
 from jmix_cli.core.project import COMPANY, PROIECT_PATH, company_path, project_name
-from jmix_cli.core.csv import validate_csv_path
+from jmix_cli.core.csv import validate_csv_path, InvalidCsvError
 from jmix_cli.entity.fields import get_entities_from_csv, _build_imports_and_fields
 from jmix_cli.entity.traits import get_traits_from_csv
 from jmix_cli.entity.relations.base import get_relations_from_csv
@@ -40,7 +40,10 @@ def get_sorted_entities_by_dependency() -> list[str]:
     entities_path = Path("entities.csv")
     if not entities_path.exists():
         return []
-    validate_csv_path("entities.csv", ["entity_name"])
+    try:
+        validate_csv_path("entities.csv", ["entity_name"])
+    except InvalidCsvError as e:
+        raise InvalidCsvError(str(e))
     all_entities = set()
     with entities_path.open(mode="r", encoding="utf-8") as f:
         reader = csv.DictReader(f)
@@ -51,7 +54,10 @@ def get_sorted_entities_by_dependency() -> list[str]:
     dependencies = {ent: set() for ent in all_entities}
     relations_path = Path("relations.csv")
     if relations_path.exists():
-        validate_csv_path("relations.csv", ["source_entity", "relation_type", "target_entity", "field_name", "mandatory"])
+        try:
+            validate_csv_path("relations.csv", ["source_entity", "relation_type", "target_entity", "field_name", "mandatory"])
+        except InvalidCsvError as e:
+            raise InvalidCsvError(str(e))
         with relations_path.open(mode="r", encoding="utf-8") as f:
             reader = csv.DictReader(f)
             for row in reader:

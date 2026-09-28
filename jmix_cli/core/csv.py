@@ -34,29 +34,47 @@ from jmix_cli.exceptions import InvalidCsvError
 def csv_has_data(path: str, required_columns: list[str]) -> bool:
     """Return True if the CSV exists, has the required columns, and at least one data row."""
     if not os.path.exists(path):
-        return False
+        raise InvalidCsvError(
+            path,
+            message=f"CSV file not found: {path}. "
+            f"Place your CSV files (entities.csv, relations.csv, roles.csv, traits.csv) in the project root folder."
+        )
     with open(path, mode="r", encoding="utf-8") as f:
         reader = csv.DictReader(f)
         if reader.fieldnames is None:
-            return False
+            raise InvalidCsvError(path, message=f"CSV file is empty: {path}")
         missing = set(required_columns) - set(reader.fieldnames)
         if missing:
-            return False
+            raise InvalidCsvError(
+                path,
+                missing_columns=sorted(list(missing)),
+                message=f"CSV file '{path}' is missing required columns: {', '.join(sorted(list(missing)))}. "
+                f"Expected columns: {', '.join(required_columns)}"
+            )
         try:
             next(reader)
             return True
         except StopIteration:
-            return False
+            raise InvalidCsvError(path, message=f"CSV file '{path}' has no data rows (only header)")
 
 
 def validate_csv_path(csv_path: str, required_columns: list[str]) -> list[dict]:
     if not os.path.exists(csv_path):
-        raise InvalidCsvError(csv_path)
+        raise InvalidCsvError(
+            csv_path,
+            message=f"CSV file not found: {csv_path}. "
+            f"Place your CSV files (entities.csv, relations.csv, roles.csv, traits.csv) in the project root folder."
+        )
     with open(csv_path, mode="r", encoding="utf-8") as f:
         reader = csv.DictReader(f)
         if reader.fieldnames is None:
             raise InvalidCsvError(csv_path, message=f"CSV file is empty: {csv_path}")
         missing = set(required_columns) - set(reader.fieldnames)
         if missing:
-            raise InvalidCsvError(csv_path, missing_columns=sorted(list(missing)))
+            raise InvalidCsvError(
+                csv_path,
+                missing_columns=sorted(list(missing)),
+                message=f"CSV file '{csv_path}' is missing required columns: {', '.join(sorted(list(missing)))}. "
+                f"Expected columns: {', '.join(required_columns)}"
+            )
         return list(reader)

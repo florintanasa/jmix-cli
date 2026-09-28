@@ -28,7 +28,7 @@ import csv
 from pathlib import Path
 from typing import Any
 
-from jmix_cli.core.csv import validate_csv_path
+from jmix_cli.core.csv import validate_csv_path, InvalidCsvError
 
 
 def get_relations_from_csv(csv_path: str, target_entity_name: str) -> list[dict[str, Any]]:
@@ -37,7 +37,10 @@ def get_relations_from_csv(csv_path: str, target_entity_name: str) -> list[dict[
     if not csv_file.exists():
         return relations_list
     required = ["source_entity", "relation_type", "target_entity", "field_name", "mandatory"]
-    validate_csv_path(csv_path, required)
+    try:
+        validate_csv_path(csv_path, required)
+    except InvalidCsvError as e:
+        raise InvalidCsvError(str(e))
     with csv_file.open(mode="r", encoding="utf-8") as f:
         reader = csv.DictReader(f)
         for row in reader:

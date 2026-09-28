@@ -27,7 +27,7 @@
 import csv
 from pathlib import Path
 
-from jmix_cli.core.csv import validate_csv_path
+from jmix_cli.core.csv import validate_csv_path, InvalidCsvError
 
 
 def get_traits_from_csv(csv_path: str, target_entity_name: str) -> dict[str, str]:
@@ -40,7 +40,10 @@ def get_traits_from_csv(csv_path: str, target_entity_name: str) -> dict[str, str
     csv_file = Path(csv_path)
     if not csv_file.exists():
         return traits
-    validate_csv_path(csv_path, ["entity_name", "versioned", "audit_of_creation", "audit_of_modification", "soft_delete"])
+    try:
+        validate_csv_path(csv_path, ["entity_name", "versioned", "audit_of_creation", "audit_of_modification", "soft_delete"])
+    except InvalidCsvError as e:
+        raise InvalidCsvError(str(e))
     with csv_file.open(mode="r", encoding="utf-8") as f:
         reader = csv.DictReader(f)
         for row in reader:

@@ -43,14 +43,20 @@ from jmix_cli.cli.commands.entity import _get_inverse_composition_relations
 from jmix_cli.i18n import update_messages_entity
 from jmix_cli.entity.traits import get_traits_from_csv
 from jmix_cli.core.csv import csv_has_data
+from jmix_cli.core.csv import csv_has_data, InvalidCsvError
 from jmix_cli.core.project import COMPANY, project_name
 
 logger = get_logger("jmix_cli.cli.commands.ui")
 
 
 def generate_all_list_views() -> None:
-    if not csv_has_data("entities.csv", ["entity_name", "field_name", "field_type", "mandatory", "unique"]):
-        logger.info("Skipping list view generation: entities.csv is missing or empty.")
+    try:
+        if not csv_has_data("entities.csv", ["entity_name", "field_name", "field_type", "mandatory", "unique"]):
+            logger.info("Skipping list view generation: entities.csv is missing or empty.")
+            return
+    except InvalidCsvError as e:
+        logger.warning(f"Warning: {e}")
+        logger.info("Skipping list view generation.")
         return
     ordered_list = get_sorted_entities_by_dependency()
     for ent in ordered_list:
@@ -64,8 +70,13 @@ def generate_all_list_views() -> None:
 
 
 def generate_all_detail_views() -> None:
-    if not csv_has_data("entities.csv", ["entity_name", "field_name", "field_type", "mandatory", "unique"]):
-        logger.info("Skipping detail view generation: entities.csv is missing or empty.")
+    try:
+        if not csv_has_data("entities.csv", ["entity_name", "field_name", "field_type", "mandatory", "unique"]):
+            logger.info("Skipping detail view generation: entities.csv is missing or empty.")
+            return
+    except InvalidCsvError as e:
+        logger.warning(f"Warning: {e}")
+        logger.info("Skipping detail view generation.")
         return
     ordered_list = get_sorted_entities_by_dependency()
     for ent in ordered_list:
