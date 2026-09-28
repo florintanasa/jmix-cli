@@ -33,7 +33,7 @@ from jmix_cli.core.project import COMPANY, PROIECT_PATH, company_path, project_n
 from jmix_cli.core.files import write_file, ensure_dir
 from jmix_cli.core.logger import get_logger
 from jmix_cli.core.csv import csv_has_data, validate_csv_path
-from jmix_cli.exceptions import UserInputError, ConfigurationError
+from jmix_cli.exceptions import UserInputError, ConfigurationError, InvalidCsvError
 from jmix_cli.cli.dry_run import inject_audit_dependencies, _finalize_composition_relationships
 from jmix_cli.entity import (
     get_entities_from_csv,
